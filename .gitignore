@@ -1,1 +1,3 @@
 url-shortener/.env.example
+*/dist*
+*/node_modules*
