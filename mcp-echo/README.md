@@ -6,7 +6,7 @@ MCP(Model Context Protocol) 학습을 위한 실습 프로젝트.
 Wikipedia API를 외부 데이터 소스로 활용해 MCP의 핵심 개념을 실습한다.
 
 - **언어:** TypeScript
-- **Transport:** Stdio (→ SSE 전환 예정)
+- **Transport:** Stdio (Claude Desktop) / SSE (Inspector, API 클라이언트)
 - **외부 API:** Wikipedia REST API (인증 불필요)
 
 ---
@@ -42,9 +42,13 @@ Wikipedia API를 외부 데이터 소스로 활용해 MCP의 핵심 개념을 �
 
 ---
 
+#### SSE Transport (Claude Desktop 미지원)
+
+- Claude Desktop은 `command` 기반 Stdio Transport만 지원
+- SSE 서버(`npm run dev:sse`)는 Inspector 및 외부 클라이언트용
+
 ### 🔲 예정
 
-- [ ] SSE Transport 전환 (서버 재시작 없이 반영)
 - [ ] 에러 핸들링 개선
 - [ ] 한국어/영어 자동 감지
 
@@ -74,8 +78,9 @@ Wikipedia API를 외부 데이터 소스로 활용해 MCP의 핵심 개념을 �
 ## 개발 명령어
 
 ```bash
-npm run build                                          # 빌드
-npx @modelcontextprotocol/inspector node dist/index.js # Inspector 실행
+npm run build        # 빌드
+npm run inspector    # Inspector 실행 (Stdio)
+npm run dev:sse      # SSE 서버 실행 (외부 클라이언트용, watch 모드)
 ```
 
 Claude Desktop 서버 반영: 설정 → Developer → 서버 토글 OFF → ON
