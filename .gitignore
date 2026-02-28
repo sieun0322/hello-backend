@@ -1,3 +1,4 @@
 url-shortener/.env.example
 */dist*
 */node_modules*
+mcp-echo/BLOG_CLIENT.md
