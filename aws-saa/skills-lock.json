@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "tutor-setup": {
+      "source": "RoundTable02/tutor-skills",
+      "sourceType": "github",
+      "computedHash": "580d513075fd44fb2b041840caadc6d924c0f41aeea5898196373590d534af2f"
+    }
+  }
+}
