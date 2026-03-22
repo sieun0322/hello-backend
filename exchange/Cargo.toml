@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "order-gateway",
+    "matching-engine",
+    "market-data-feed",
+]
+resolver = "2"

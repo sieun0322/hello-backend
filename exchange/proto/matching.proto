@@ -1,0 +1,55 @@
+syntax = "proto3";
+package matching;
+
+enum Side {
+  BUY = 0;
+  SELL = 1;
+}
+
+enum OrderType {
+  LIMIT = 0;
+  MARKET = 1;
+}
+
+message OrderRequest {
+  string symbol = 1;
+  Side side = 2;
+  uint64 price = 3;
+  uint64 quantity = 4;
+  OrderType order_type = 5;
+}
+
+message OrderResponse {
+  uint64 order_id = 1;
+  string status = 2;
+  uint64 filled_quantity = 3;
+}
+
+message CancelRequest {
+  uint64 order_id = 1;
+}
+
+message CancelResponse {
+  bool success = 1;
+}
+
+message Symbol {
+  string symbol = 1;
+}
+
+message PriceLevel {
+  uint64 price = 1;
+  uint64 quantity = 2;
+}
+
+message OrderBookSnapshot {
+  string symbol = 1;
+  repeated PriceLevel bids = 2;
+  repeated PriceLevel asks = 3;
+}
+
+service MatchingEngine {
+  rpc SubmitOrder(OrderRequest) returns (OrderResponse);
+  rpc CancelOrder(CancelRequest) returns (CancelResponse);
+  rpc GetOrderBook(Symbol) returns (OrderBookSnapshot);
+}
