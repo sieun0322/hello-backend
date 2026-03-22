@@ -19,6 +19,13 @@ use matching::{OrderRequest, Symbol};
 
 type GrpcClient = Arc<tokio::sync::Mutex<MatchingEngineClient<Channel>>>;
 
+#[derive(Clone)]
+struct AppState {
+    grpc: GrpcClient,
+    http: reqwest::Client,
+    market_data_url: String,
+}
+
 // ─── 요청/응답 타입 ───────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -71,11 +78,21 @@ fn service_err(e: impl std::fmt::Display) -> (StatusCode, Json<ErrorRes>) {
     )
 }
 
+// ─── 체결 이벤트 타입 (market-data-feed와 공유) ───────────────
+
+#[derive(Serialize)]
+struct TradeEvent {
+    symbol: String,
+    price: u64,
+    quantity: u64,
+    timestamp: u64,
+}
+
 // ─── 핸들러 ──────────────────────────────────────────────────
 
 // POST /orders
 async fn submit_order(
-    State(client): State<GrpcClient>,
+    State(state): State<AppState>,
     Json(req): Json<SubmitOrderReq>,
 ) -> ApiResult<SubmitOrderRes> {
     let side = match req.side.to_uppercase().as_str() {
@@ -94,6 +111,9 @@ async fn submit_order(
         return Err(bad_request("quantity must be > 0"));
     }
 
+    let symbol = req.symbol.clone();
+    let price = req.price;
+
     let grpc_req = OrderRequest {
         symbol: req.symbol,
         side,
@@ -102,8 +122,27 @@ async fn submit_order(
         order_type,
     };
 
-    let mut c = client.lock().await;
+    let mut c = state.grpc.lock().await;
     let res = c.submit_order(grpc_req).await.map_err(service_err)?.into_inner();
+
+    // 체결이 발생한 경우 market-data-feed에 이벤트 전송
+    if res.filled_quantity > 0 {
+        let event = TradeEvent {
+            symbol,
+            price,
+            quantity: res.filled_quantity,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        };
+        // 실패해도 주문 응답에는 영향 없음 (fire-and-forget)
+        let _ = state.http
+            .post(&state.market_data_url)
+            .json(&event)
+            .send()
+            .await;
+    }
 
     Ok(Json(SubmitOrderRes {
         order_id: res.order_id,
@@ -114,10 +153,10 @@ async fn submit_order(
 
 // GET /orderbook/:symbol
 async fn get_order_book(
-    State(client): State<GrpcClient>,
+    State(state): State<AppState>,
     Path(symbol): Path<String>,
 ) -> ApiResult<OrderBookRes> {
-    let mut c = client.lock().await;
+    let mut c = state.grpc.lock().await;
     let snapshot = c
         .get_order_book(Symbol { symbol: symbol.clone() })
         .await
@@ -146,12 +185,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let channel = Channel::from_static("http://[::1]:50051")
         .connect()
         .await?;
-    let client = Arc::new(tokio::sync::Mutex::new(MatchingEngineClient::new(channel)));
+    let grpc = Arc::new(tokio::sync::Mutex::new(MatchingEngineClient::new(channel)));
+
+    let state = AppState {
+        grpc,
+        http: reqwest::Client::new(),
+        market_data_url: "http://localhost:9001/publish".to_string(),
+    };
 
     let app = Router::new()
         .route("/orders", post(submit_order))
         .route("/orderbook/:symbol", get(get_order_book))
-        .with_state(client);
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
     println!("Order Gateway listening on http://0.0.0.0:8080");
