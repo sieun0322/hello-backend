@@ -2,3 +2,6 @@ url-shortener/.env.example
 */dist*
 */node_modules*
 mcp-echo/BLOG_CLIENT.md
+*/target/*
+aws-saa/SAA-C03_Examtopics_V18.35_KOR.pdf
+aws-saa/SAA-C03_Examtopics_V18.35_KOR.txt
