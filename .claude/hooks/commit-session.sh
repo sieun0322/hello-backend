@@ -18,8 +18,44 @@ if git diff-index --quiet HEAD 2>/dev/null; then
   exit 0
 fi
 
+# 시크릿 패턴 검사 — 감지된 파일만 언스테이징
+SECRET_PATTERNS=(
+  # API 키
+  'AKIA[0-9A-Z]{16}'
+  'sk-ant-[a-zA-Z0-9\-_]{20,}'
+  'sk-[a-zA-Z0-9]{48}'
+  'ghp_[a-zA-Z0-9]{36}'
+  'AIza[0-9A-Za-z\-_]{35}'
+  '(api_key|API_KEY)\s*=\s*["\x27]?[a-zA-Z0-9\-_]{20,}'
+  '(secret|SECRET)\s*=\s*["\x27]?[a-zA-Z0-9\-_]{20,}'
+  # 개인정보
+  "$HOME"
+  '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+  '(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9]+\.[0-9]+'
+)
+
+STAGED_FILES=$(git diff --cached --name-only 2>/dev/null)
+for file in $STAGED_FILES; do
+  FILE_DIFF=$(git diff --cached -- "$file" 2>/dev/null)
+  for pattern in "${SECRET_PATTERNS[@]}"; do
+    if echo "$FILE_DIFF" | grep -qE "$pattern" 2>/dev/null; then
+      echo "[BLOCKED] 시크릿 감지: $file ($pattern) — 스테이징에서 제외합니다." >&2
+      git restore --staged "$file" 2>/dev/null || true
+      break
+    fi
+  done
+done
+
+# 다시 확인: 남은 스테이징이 없으면 종료
+if git diff-index --quiet HEAD 2>/dev/null; then
+  echo "[INFO] 커밋할 파일이 없습니다 (전부 시크릿 포함)." >&2
+  exit 0
+fi
+
+STAGED_DIFF=$(git diff --cached 2>/dev/null)
+
 # Extract diff for commit message generation (truncated to 2000 lines)
-DIFF=$(git diff --cached 2>/dev/null | head -2000)
+DIFF=$(echo "$STAGED_DIFF" | head -2000)
 
 # Generate commit message via Claude headless mode
 COMMIT_MSG=""

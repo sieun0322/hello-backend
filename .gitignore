@@ -1,3 +1,9 @@
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 url-shortener/.env.example
 */dist*
 */node_modules*
