@@ -56,17 +56,6 @@
         ]
       }
     ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash .claude/hooks/commit-session.sh"
-          }
-        ]
-      }
-    ],
     "Notification": [
       {
         "matcher": "",
