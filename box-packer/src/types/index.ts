@@ -40,3 +40,20 @@ export interface PackingResult {
   totalBoxes: number
   unpackable: Product[]
 }
+
+export interface PackingSession {
+  id: string
+  createdAt: string   // ISO 8601
+  items: OrderItem[]
+  result: PackingResult
+}
+
+export interface AggregatedStats {
+  period: 'daily' | 'monthly' | 'yearly'
+  label: string
+  totalSessions: number
+  totalBoxes: number
+  avgUtilization: number   // 0~1
+  mostUsedBox: string
+  sessions: PackingSession[]
+}
