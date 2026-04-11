@@ -119,7 +119,7 @@ export default function App() {
       </nav>
 
       {/* 콘텐츠 */}
-      <main className="flex-1 px-4 sm:px-6 py-4 sm:py-6 max-w-2xl w-full mx-auto pb-20 sm:pb-6">
+      <main className={`flex-1 px-4 sm:px-6 py-4 sm:py-6 w-full mx-auto pb-20 sm:pb-6 ${tab === 'result' ? 'max-w-5xl' : 'max-w-2xl'}`}>
         {tab === 'boxes'      && <BoxManager />}
         {tab === 'products'   && <ProductManager />}
         {tab === 'order'      && <OrderList onViewResult={handleViewResult} />}

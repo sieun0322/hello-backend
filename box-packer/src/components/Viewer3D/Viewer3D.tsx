@@ -193,8 +193,9 @@ export function Viewer3D({ result }: Props) {
         )
       })()}
 
-      {/* 3D 씬 */}
-      <div className="relative w-full h-[320px] sm:h-[520px] bg-gray-950 rounded-xl overflow-hidden border border-gray-800">
+      {/* 3D 씬 + AI 분석 (lg: 가로 배치) */}
+      <div className="flex flex-col lg:flex-row lg:items-start gap-3">
+      <div className="relative w-full lg:flex-1 h-[320px] sm:h-[520px] bg-gray-950 rounded-xl overflow-hidden border border-gray-800">
         <Canvas
           camera={{ position: [totalWidth / 2, camDist * 0.7, camDist], fov: 45 }}
           onPointerMissed={() => {
@@ -345,7 +346,7 @@ export function Viewer3D({ result }: Props) {
       </div>
 
       {/* AI 분석 */}
-      <div className="border border-gray-800 rounded-xl p-4">
+      <div className="border border-gray-800 rounded-xl p-4 lg:w-72 lg:shrink-0">
         <div className="flex items-center justify-between mb-3">
           <p className="text-sm font-medium text-gray-300">AI 포장 분석</p>
           <button
@@ -368,6 +369,7 @@ export function Viewer3D({ result }: Props) {
           <p className="text-xs text-gray-600">AI 분석 버튼을 눌러 포장 효율 개선 제안을 받아보세요.</p>
         )}
       </div>
+      </div>{/* flex row wrapper 끝 */}
     </div>
   )
 }
