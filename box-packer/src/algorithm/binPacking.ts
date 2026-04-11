@@ -115,7 +115,7 @@ type ActiveBox = PackedBox & { extremePoints: Point[] }
 
 export function pack(orderItems: OrderItem[], boxes: Box[]): PackingResult {
   if (boxes.length === 0 || orderItems.length === 0) {
-    return { boxes: [], totalBoxes: 0, unpackable: [] }
+    return { boxes: [], totalBoxes: 0, unpackable: [], stockLimitReached: false }
   }
 
   // 상품 펼치기 (수량 적용)
@@ -138,6 +138,9 @@ export function pack(orderItems: OrderItem[], boxes: Box[]): PackingResult {
 
   const activeBoxes: ActiveBox[] = []
   const unpackable: Product[] = []
+  // 박스 타입별 사용 횟수 추적 (재고 제약용)
+  const usedCount: Record<string, number> = {}
+  let stockLimitReached = false
 
   for (const product of products) {
     let placed = false
@@ -155,9 +158,14 @@ export function pack(orderItems: OrderItem[], boxes: Box[]): PackingResult {
     }
 
     if (!placed) {
-      // 새 박스 시도 (작은 것부터)
+      // 새 박스 시도 (작은 것부터, 재고 확인)
       for (const boxType of sortedBoxes) {
         if (!fits(product, boxType)) continue
+        // 재고 제약: stock > 0이면 사용 횟수 초과 불가
+        if (boxType.stock > 0 && (usedCount[boxType.id] ?? 0) >= boxType.stock) {
+          stockLimitReached = true
+          continue
+        }
 
         const newActive: ActiveBox = {
           box: boxType,
@@ -171,6 +179,7 @@ export function pack(orderItems: OrderItem[], boxes: Box[]): PackingResult {
           newActive.totalWeight += product.weight
           newActive.extremePoints = addExtremePoints(newActive.extremePoints, item.position, item.dims)
           activeBoxes.push(newActive)
+          usedCount[boxType.id] = (usedCount[boxType.id] ?? 0) + 1
           placed = true
           break
         }
@@ -192,5 +201,6 @@ export function pack(orderItems: OrderItem[], boxes: Box[]): PackingResult {
     boxes: resultBoxes,
     totalBoxes: resultBoxes.length,
     unpackable,
+    stockLimitReached,
   }
 }

@@ -7,7 +7,7 @@ interface Props {
   onCancel: () => void
 }
 
-const EMPTY = { name: '', width: '', depth: '', height: '', maxWeight: '' }
+const EMPTY = { name: '', width: '', depth: '', height: '', maxWeight: '', stock: '' }
 
 export function BoxForm({ initial, onSubmit, onCancel }: Props) {
   const [form, setForm] = useState(
@@ -18,6 +18,7 @@ export function BoxForm({ initial, onSubmit, onCancel }: Props) {
           depth: String(initial.depth),
           height: String(initial.height),
           maxWeight: String(initial.maxWeight),
+          stock: String(initial.stock),
         }
       : EMPTY
   )
@@ -29,13 +30,15 @@ export function BoxForm({ initial, onSubmit, onCancel }: Props) {
     const depth = parseFloat(form.depth)
     const height = parseFloat(form.height)
     const maxWeight = parseFloat(form.maxWeight)
+    const stock = form.stock === '' ? 0 : parseInt(form.stock, 10)
 
     if (!form.name.trim()) return setError('이름을 입력하세요')
     if ([width, depth, height, maxWeight].some((v) => isNaN(v) || v <= 0))
       return setError('모든 치수/무게는 0보다 큰 숫자여야 합니다')
+    if (isNaN(stock) || stock < 0) return setError('보유 수량은 0 이상 정수여야 합니다')
 
     setError('')
-    onSubmit({ name: form.name.trim(), width, depth, height, maxWeight })
+    onSubmit({ name: form.name.trim(), width, depth, height, maxWeight, stock })
   }
 
   const field = (label: string, key: keyof typeof EMPTY, unit: string) => (
@@ -73,6 +76,21 @@ export function BoxForm({ initial, onSubmit, onCancel }: Props) {
         {field('높이', 'height', 'cm')}
       </div>
       {field('최대 무게', 'maxWeight', 'kg')}
+      <div className="flex flex-col gap-1">
+        <label className="text-xs text-gray-400">보유 수량 <span className="text-gray-600">(0 = 무제한)</span></label>
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={form.stock}
+            onChange={(e) => setForm((f) => ({ ...f, stock: e.target.value }))}
+            placeholder="0"
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+          />
+          <span className="text-xs text-gray-500 w-6">개</span>
+        </div>
+      </div>
       {error && <p className="text-xs text-red-400">{error}</p>}
       <div className="flex gap-2 justify-end mt-1">
         <button

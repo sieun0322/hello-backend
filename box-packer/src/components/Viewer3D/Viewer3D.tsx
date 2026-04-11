@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { CameraControls, GizmoHelper, GizmoViewport, Grid } from '@react-three/drei'
+import ReactMarkdown from 'react-markdown'
 import type { PackingResult, PackedBox, PlacedItem, Product } from '../../types'
 import { PackedBoxMesh } from './PackedBoxMesh'
 import { InfoOverlay } from './InfoOverlay'
@@ -66,8 +67,27 @@ export function Viewer3D({ result }: Props) {
         body: JSON.stringify({ type: 'instant', data: result }),
       })
       if (!res.ok) throw new Error(`${res.status}`)
-      const json = await res.json() as { analysis: string }
-      setAiAnalysis(json.analysis)
+
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') continue
+          try {
+            const { text } = JSON.parse(data) as { text: string }
+            setAiAnalysis((prev) => (prev ?? '') + text)
+          } catch { /* 무시 */ }
+        }
+      }
     } catch {
       setAiError('분석 요청에 실패했습니다. 잠시 후 다시 시도하세요.')
     } finally {
@@ -143,6 +163,12 @@ export function Viewer3D({ result }: Props) {
         <p className="text-sm text-gray-400">총 {result.totalBoxes}개 박스</p>
       </div>
 
+      {result.stockLimitReached && (
+        <div className="bg-yellow-900/30 border border-yellow-700/50 rounded-lg px-4 py-3 text-xs text-yellow-400">
+          ⚠️ 일부 박스 재고가 부족하여 더 큰 박스 또는 추가 박스를 사용했습니다.
+        </div>
+      )}
+
       {result.unpackable.length > 0 && (
         <div className="bg-red-900/30 border border-red-700/50 rounded-lg px-4 py-3 text-xs text-red-400">
           ⚠️ 포장 불가 상품 {result.unpackable.length}개:{' '}
@@ -151,6 +177,21 @@ export function Viewer3D({ result }: Props) {
           <span className="text-red-500">이 상품들보다 큰 박스가 필요합니다.</span>
         </div>
       )}
+
+      {/* 사용 박스 조합 요약 */}
+      {(() => {
+        const countMap: Record<string, number> = {}
+        for (const pb of result.boxes) {
+          countMap[pb.box.name] = (countMap[pb.box.name] ?? 0) + 1
+        }
+        const parts = Object.entries(countMap).map(([name, cnt]) => `${name} ${cnt}개`)
+        if (parts.length <= 1) return null
+        return (
+          <div className="bg-indigo-950/40 border border-indigo-800/50 rounded-lg px-4 py-2 text-xs text-indigo-300">
+            최적 조합: {parts.join(' + ')} → 총 {result.totalBoxes}박스
+          </div>
+        )
+      })()}
 
       {/* 3D 씬 */}
       <div className="relative w-full h-[320px] sm:h-[520px] bg-gray-950 rounded-xl overflow-hidden border border-gray-800">
@@ -319,7 +360,9 @@ export function Viewer3D({ result }: Props) {
           <p className="text-xs text-red-400">{aiError}</p>
         )}
         {aiAnalysis && (
-          <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{aiAnalysis}</p>
+          <div className="text-xs text-gray-300 leading-relaxed prose prose-invert prose-xs max-w-none">
+            <ReactMarkdown>{aiAnalysis}</ReactMarkdown>
+          </div>
         )}
         {!aiAnalysis && !aiError && !aiLoading && (
           <p className="text-xs text-gray-600">AI 분석 버튼을 눌러 포장 효율 개선 제안을 받아보세요.</p>

@@ -24,6 +24,12 @@ export const useBoxStore = create<BoxStore>()(
       removeBox: (id) =>
         set((s) => ({ boxes: s.boxes.filter((b) => b.id !== id) })),
     }),
-    { name: 'box-packer:boxes' }
+    {
+      name: 'box-packer:boxes',
+      migrate: (state: unknown) => {
+        const s = state as { boxes: Box[] }
+        return { boxes: s.boxes.map((b) => ({ stock: 0, ...b })) }
+      },
+    }
   )
 )

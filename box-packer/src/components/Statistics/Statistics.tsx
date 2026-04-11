@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import * as XLSX from 'xlsx'
+import ReactMarkdown from 'react-markdown'
 import { useHistoryStore } from '../../store/historyStore'
 import type { PackingSession, AggregatedStats } from '../../types'
 
@@ -124,8 +125,27 @@ export function Statistics() {
         }),
       })
       if (!res.ok) throw new Error(`${res.status}`)
-      const json = await res.json() as { analysis: string }
-      setAiReport(json.analysis)
+
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') continue
+          try {
+            const { text } = JSON.parse(data) as { text: string }
+            setAiReport((prev) => (prev ?? '') + text)
+          } catch { /* 무시 */ }
+        }
+      }
     } catch {
       setAiError('리포트 생성에 실패했습니다. 잠시 후 다시 시도하세요.')
     } finally {
@@ -236,7 +256,9 @@ export function Statistics() {
           {aiReport && (
             <div className="border border-indigo-900 bg-indigo-950/30 rounded-xl p-4">
               <p className="text-xs font-medium text-indigo-400 mb-2">AI 분석 리포트</p>
-              <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{aiReport}</p>
+              <div className="text-xs text-gray-300 leading-relaxed prose prose-invert prose-xs max-w-none">
+                <ReactMarkdown>{aiReport}</ReactMarkdown>
+              </div>
             </div>
           )}
         </>

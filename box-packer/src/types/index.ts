@@ -5,6 +5,7 @@ export interface Box {
   depth: number   // cm
   height: number  // cm
   maxWeight: number // kg
+  stock: number   // 보유 수량 (0 = 무제한)
 }
 
 export interface Product {
@@ -39,6 +40,7 @@ export interface PackingResult {
   boxes: PackedBox[]
   totalBoxes: number
   unpackable: Product[]
+  stockLimitReached: boolean  // 재고 제약으로 최적화 불가 여부
 }
 
 export interface PackingSession {

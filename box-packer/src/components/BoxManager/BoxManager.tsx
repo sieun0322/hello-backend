@@ -64,6 +64,7 @@ export function BoxManager() {
                 <p className="text-sm font-medium text-white">{box.name}</p>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {box.width} × {box.depth} × {box.height} cm &nbsp;·&nbsp; 최대 {box.maxWeight} kg
+                  &nbsp;·&nbsp; 재고 {box.stock === 0 ? '무제한' : `${box.stock}개`}
                 </p>
               </div>
               <div className="flex gap-2">

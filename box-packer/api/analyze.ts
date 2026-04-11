@@ -1,4 +1,6 @@
-export const config = { runtime: 'edge' }
+/// <reference types="node" />
+
+import type { IncomingMessage, ServerResponse } from 'http'
 
 interface PackedBox {
   box: { name: string; width: number; depth: number; height: number; maxWeight: number }
@@ -64,20 +66,32 @@ function buildReportPrompt(stats: AggregatedStats): string {
   return lines.join('\n')
 }
 
-export default async function handler(req: Request): Promise<Response> {
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = ''
+    req.on('data', (chunk: Buffer) => { data += chunk.toString() })
+    req.on('end', () => resolve(data))
+    req.on('error', reject)
+  })
+}
+
+export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (req.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 })
+    res.writeHead(405, { 'Content-Type': 'text/plain' })
+    return res.end('Method Not Allowed')
   }
 
   const allowedOrigin = process.env.ALLOWED_ORIGIN
-  const origin = req.headers.get('origin')
-  if (allowedOrigin && origin !== allowedOrigin) {
-    return new Response('Forbidden', { status: 403 })
+  const origin = req.headers['origin'] as string | undefined
+  if (allowedOrigin && origin && origin !== allowedOrigin) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' })
+    return res.end('Forbidden')
   }
 
-  const bodyText = await req.text()
+  const bodyText = await readBody(req)
   if (bodyText.length > 10_000) {
-    return new Response('Payload Too Large', { status: 413 })
+    res.writeHead(413, { 'Content-Type': 'text/plain' })
+    return res.end('Payload Too Large')
   }
 
   let type: string
@@ -87,7 +101,8 @@ export default async function handler(req: Request): Promise<Response> {
     type = parsed.type
     data = parsed.data
   } catch {
-    return new Response('Bad Request', { status: 400 })
+    res.writeHead(400, { 'Content-Type': 'text/plain' })
+    return res.end('Bad Request')
   }
 
   const prompt =
@@ -101,7 +116,14 @@ export default async function handler(req: Request): Promise<Response> {
   const model = process.env.ANTHROPIC_MODEL
 
   if (!apiUrl || !apiKey || !apiVersion || !model) {
-    return new Response('Server configuration error', { status: 500 })
+    const missing = [
+      !apiUrl && 'ANTHROPIC_API_URL',
+      !apiKey && 'ANTHROPIC_API_KEY',
+      !apiVersion && 'ANTHROPIC_API_VERSION',
+      !model && 'ANTHROPIC_MODEL',
+    ].filter(Boolean).join(', ')
+    res.writeHead(500, { 'Content-Type': 'text/plain' })
+    return res.end(`Missing env vars: ${missing}`)
   }
 
   const aiRes = await fetch(apiUrl, {
@@ -114,18 +136,56 @@ export default async function handler(req: Request): Promise<Response> {
     body: JSON.stringify({
       model,
       max_tokens: 1024,
+      stream: true,
       messages: [{ role: 'user', content: prompt }],
     }),
   })
 
   if (!aiRes.ok) {
-    return new Response('AI API error', { status: 502 })
+    const errBody = await aiRes.text()
+    res.writeHead(502, { 'Content-Type': 'text/plain' })
+    return res.end(`AI API error ${aiRes.status}: ${errBody}`)
   }
 
-  const aiJson = await aiRes.json() as { content?: { type: string; text: string }[] }
-  const text = aiJson.content?.find((b) => b.type === 'text')?.text ?? '분석 결과를 가져올 수 없습니다.'
-
-  return new Response(JSON.stringify({ analysis: text }), {
-    headers: { 'Content-Type': 'application/json' },
+  // SSE 스트리밍 응답
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
   })
+
+  const reader = aiRes.body!.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const data = line.slice(6).trim()
+        if (data === '[DONE]') continue
+
+        try {
+          const event = JSON.parse(data)
+          if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+            res.write(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`)
+          }
+        } catch {
+          // 파싱 실패 무시
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  res.write('data: [DONE]\n\n')
+  res.end()
 }
