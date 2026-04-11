@@ -34,13 +34,15 @@ export interface PackedBox {
   box: Box
   items: PlacedItem[]
   totalWeight: number
+  stability: number  // 0~1: 높이 슬라이스별 가로 채움률 가중 평균
 }
 
 export interface PackingResult {
   boxes: PackedBox[]
   totalBoxes: number
   unpackable: Product[]
-  stockLimitReached: boolean  // 재고 제약으로 최적화 불가 여부
+  stockLimitReached: boolean
+  avgStability: number  // 0~1: 전체 박스 평균 안정성
 }
 
 export interface PackConstraint {
@@ -81,6 +83,7 @@ export interface AggregatedStats {
   totalSessions: number
   totalBoxes: number
   avgUtilization: number   // 0~1
+  avgStability: number     // 0~1
   mostUsedBox: string
   sessions: PackingSession[]
 }

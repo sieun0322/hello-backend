@@ -7,6 +7,7 @@ import { Statistics } from './components/Statistics/Statistics'
 import { useBoxStore } from './store/boxStore'
 import { useProductStore } from './store/productStore'
 import { useHistoryStore } from './store/historyStore'
+import { useOrderStore } from './store/orderStore'
 import { exportData, parseImportFile } from './utils/dataIO'
 import type { OrderItem, PackingResult } from './types'
 
@@ -24,6 +25,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('boxes')
   const [result, setResult] = useState<PackingResult | null>(null)
   const [resultItems, setResultItems] = useState<OrderItem[]>([])
+  const [resultOrderId, setResultOrderId] = useState<string | null>(null)
   const [importError, setImportError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -32,12 +34,19 @@ export default function App() {
   const { addBox } = useBoxStore()
   const { addProduct } = useProductStore()
   const { addSession } = useHistoryStore()
+  const { setResult: saveOrderResult } = useOrderStore()
 
-  function handleViewResult(r: PackingResult, items: OrderItem[] = []) {
+  function handleViewResult(r: PackingResult, items: OrderItem[] = [], orderId?: string) {
     setResult(r)
     setResultItems(items)
+    setResultOrderId(orderId ?? null)
     addSession(items, r)
     setTab('result')
+  }
+
+  function handleSaveSimResult(r: PackingResult) {
+    setResult(r)
+    if (resultOrderId) saveOrderResult(resultOrderId, r)
   }
 
   function handleExport() {
@@ -128,7 +137,7 @@ export default function App() {
         {tab === 'statistics' && <Statistics />}
         {tab === 'result'     && (
           result ? (
-            <Viewer3D result={result} items={resultItems} />
+            <Viewer3D result={result} items={resultItems} onSaveResult={handleSaveSimResult} />
           ) : (
             <div className="text-center py-12 text-gray-500">
               <p className="text-4xl mb-3">📐</p>

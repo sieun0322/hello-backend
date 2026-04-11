@@ -30,6 +30,8 @@ function aggregate(sessions: PackingSession[], period: Period): AggregatedStats 
   const totalBoxes = sessions.reduce((s, ss) => s + ss.result.totalBoxes, 0)
   const avgUtilization =
     sessions.reduce((s, ss) => s + calcUtilization(ss), 0) / sessions.length
+  const avgStability =
+    sessions.reduce((s, ss) => s + (ss.result.avgStability ?? 0), 0) / sessions.length
 
   // 가장 많이 쓴 박스
   const boxCount: Record<string, number> = {}
@@ -47,7 +49,7 @@ function aggregate(sessions: PackingSession[], period: Period): AggregatedStats 
   const maxLabel = labels.reduce((a, b) => (a > b ? a : b))
   const label = minLabel === maxLabel ? minLabel : `${minLabel} ~ ${maxLabel}`
 
-  return { period, label, totalSessions: sessions.length, totalBoxes, avgUtilization, mostUsedBox, sessions }
+  return { period, label, totalSessions: sessions.length, totalBoxes, avgUtilization, avgStability, mostUsedBox, sessions }
 }
 
 function filterByPeriod(sessions: PackingSession[], period: Period): PackingSession[] {
@@ -85,6 +87,7 @@ function exportToExcel(stats: AggregatedStats) {
     총세션수: stats.totalSessions,
     총박스수: stats.totalBoxes,
     평균활용률: `${(stats.avgUtilization * 100).toFixed(1)}%`,
+    평균안정성: `${(stats.avgStability * 100).toFixed(1)}%`,
     최다사용박스: stats.mostUsedBox,
   }]
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), '기간 집계')
@@ -203,6 +206,7 @@ export function Statistics() {
               { label: '총 포장 횟수', value: `${stats!.totalSessions}회` },
               { label: '총 박스 수', value: `${stats!.totalBoxes}개` },
               { label: '평균 공간 활용률', value: `${(stats!.avgUtilization * 100).toFixed(1)}%` },
+              { label: '평균 안정성', value: `${(stats!.avgStability * 100).toFixed(1)}%` },
               { label: '최다 사용 박스', value: stats!.mostUsedBox },
             ].map(({ label, value }) => (
               <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">

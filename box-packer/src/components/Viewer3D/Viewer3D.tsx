@@ -12,6 +12,7 @@ import { AnimationControls } from './AnimationControls'
 interface Props {
   result: PackingResult
   items: OrderItem[]
+  onSaveResult?: (result: PackingResult) => void
 }
 
 const BOX_GAP = 20
@@ -89,7 +90,7 @@ async function streamChat(
   }
 }
 
-export function Viewer3D({ result, items }: Props) {
+export function Viewer3D({ result, items, onSaveResult }: Props) {
   const { boxes: allBoxes } = useBoxStore()
   const [selectedBoxIndex, setSelectedBoxIndex] = useState<number | null>(null)
   const [selectedItem, setSelectedItem] = useState<PlacedItem | null>(null)
@@ -258,12 +259,20 @@ export function Viewer3D({ result, items }: Props) {
         </h2>
         <div className="flex items-center gap-2">
           {isSimulated && (
-            <button
-              onClick={handleResetResult}
-              className="text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-2 py-1 rounded transition-colors"
-            >
-              원래 결과로
-            </button>
+            <>
+              <button
+                onClick={() => { onSaveResult?.(displayResult); handleResetResult() }}
+                className="text-xs text-indigo-400 hover:text-indigo-300 border border-indigo-700 hover:border-indigo-500 px-2 py-1 rounded transition-colors"
+              >
+                이 결과로 저장
+              </button>
+              <button
+                onClick={handleResetResult}
+                className="text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-2 py-1 rounded transition-colors"
+              >
+                원래 결과로
+              </button>
+            </>
           )}
           <p className="text-sm text-gray-400">총 {activeResult.totalBoxes}개 박스</p>
         </div>
@@ -438,6 +447,10 @@ export function Viewer3D({ result, items }: Props) {
                   <p className={`text-xs mt-0.5 ${utilization < 0.5 ? 'text-yellow-500' : 'text-gray-500'}`}>
                     공간 {(utilization * 100).toFixed(0)}%
                     {utilization < 0.5 && ' ⚠ 더 작은 박스 권장'}
+                  </p>
+                  <p className={`text-xs mt-0.5 ${pb.stability < 0.6 ? 'text-orange-400' : 'text-gray-500'}`}>
+                    안정성 {(pb.stability * 100).toFixed(0)}%
+                    {pb.stability < 0.6 && ' ⚠ 흔들림 주의'}
                   </p>
                 </button>
               )

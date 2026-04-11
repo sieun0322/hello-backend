@@ -25,6 +25,39 @@ function rotations(p: Product): Dims[] {
   ]
 }
 
+function calcStability(items: PlacedItem[], box: Box): number {
+  const boxArea = box.width * box.depth
+  if (boxArea === 0 || items.length === 0) return 0
+
+  // 높이 경계값 수집
+  const ySet = new Set<number>([0, box.height])
+  for (const item of items) {
+    ySet.add(item.position.y)
+    ySet.add(item.position.y + item.dims.h)
+  }
+  const ys = [...ySet].sort((a, b) => a - b)
+
+  let weightedSum = 0
+  let totalH = 0
+
+  for (let i = 0; i < ys.length - 1; i++) {
+    const y0 = ys[i]
+    const y1 = ys[i + 1]
+    const sliceH = y1 - y0
+    if (sliceH <= 0) continue
+
+    // 이 슬라이스와 교차하는 아이템의 바닥 면적 합산
+    const filledArea = items
+      .filter((item) => item.position.y < y1 && item.position.y + item.dims.h > y0)
+      .reduce((s, item) => s + item.dims.w * item.dims.d, 0)
+
+    weightedSum += Math.min(filledArea / boxArea, 1) * sliceH
+    totalH += sliceH
+  }
+
+  return totalH > 0 ? weightedSum / totalH : 0
+}
+
 function applyRotationConstraint(dims: Dims[], constraint: PackConstraint['rotation']): Dims[] {
   if (constraint === 'natural') return [dims[0]]
   if (constraint === 'flat') {
@@ -222,12 +255,18 @@ export function pack(
     box,
     items,
     totalWeight,
+    stability: calcStability(items, box),
   }))
+
+  const avgStability = resultBoxes.length > 0
+    ? resultBoxes.reduce((s, pb) => s + pb.stability, 0) / resultBoxes.length
+    : 0
 
   return {
     boxes: resultBoxes,
     totalBoxes: resultBoxes.length,
     unpackable,
     stockLimitReached,
+    avgStability,
   }
 }
