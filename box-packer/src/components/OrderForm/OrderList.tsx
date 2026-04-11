@@ -150,20 +150,12 @@ export function OrderList({ onViewResult }: Props) {
                 >
                   수정
                 </button>
-                {order.result && (
-                  <button
-                    onClick={() => onViewResult(order.result!)}
-                    className="text-xs text-indigo-400 hover:text-indigo-300 px-2 py-1 transition-colors"
-                  >
-                    결과 보기
-                  </button>
-                )}
                 {order.items.length > 0 && boxes.length > 0 && (
                   <button
-                    onClick={() => handleCalculate(order.id)}
+                    onClick={() => order.result ? onViewResult(order.result) : handleCalculate(order.id)}
                     className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded transition-colors"
                   >
-                    포장 계산
+                    {order.result ? '결과 보기' : '포장 계산'}
                   </button>
                 )}
                 <button
