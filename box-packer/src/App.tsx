@@ -8,7 +8,7 @@ import { useBoxStore } from './store/boxStore'
 import { useProductStore } from './store/productStore'
 import { useHistoryStore } from './store/historyStore'
 import { exportData, parseImportFile } from './utils/dataIO'
-import type { PackingResult } from './types'
+import type { OrderItem, PackingResult } from './types'
 
 type Tab = 'boxes' | 'products' | 'order' | 'result' | 'statistics'
 
@@ -23,6 +23,7 @@ const TABS: { id: Tab; label: string }[] = [
 export default function App() {
   const [tab, setTab] = useState<Tab>('boxes')
   const [result, setResult] = useState<PackingResult | null>(null)
+  const [resultItems, setResultItems] = useState<OrderItem[]>([])
   const [importError, setImportError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -32,9 +33,10 @@ export default function App() {
   const { addProduct } = useProductStore()
   const { addSession } = useHistoryStore()
 
-  function handleViewResult(r: PackingResult) {
+  function handleViewResult(r: PackingResult, items: OrderItem[] = []) {
     setResult(r)
-    addSession([], r)
+    setResultItems(items)
+    addSession(items, r)
     setTab('result')
   }
 
@@ -126,7 +128,7 @@ export default function App() {
         {tab === 'statistics' && <Statistics />}
         {tab === 'result'     && (
           result ? (
-            <Viewer3D result={result} />
+            <Viewer3D result={result} items={resultItems} />
           ) : (
             <div className="text-center py-12 text-gray-500">
               <p className="text-4xl mb-3">📐</p>

@@ -43,6 +43,17 @@ export interface PackingResult {
   stockLimitReached: boolean  // 재고 제약으로 최적화 불가 여부
 }
 
+export interface SimAction {
+  type: 'filter_boxes'
+  names: string[]
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  action?: SimAction | null  // assistant 메시지에만
+}
+
 export interface Order {
   id: string
   name: string

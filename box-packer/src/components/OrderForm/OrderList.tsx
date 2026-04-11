@@ -4,10 +4,10 @@ import { useBoxStore } from '../../store/boxStore'
 import { useProductStore } from '../../store/productStore'
 import { pack } from '../../algorithm/binPacking'
 import { OrderForm } from './OrderForm'
-import type { PackingResult } from '../../types'
+import type { OrderItem, PackingResult } from '../../types'
 
 interface Props {
-  onViewResult: (result: PackingResult) => void
+  onViewResult: (result: PackingResult, items: OrderItem[]) => void
 }
 
 export function OrderList({ onViewResult }: Props) {
@@ -28,7 +28,7 @@ export function OrderList({ onViewResult }: Props) {
     if (!order || order.items.length === 0) return
     const result = pack(order.items, boxes)
     setResult(id, result)
-    onViewResult(result)
+    onViewResult(result, order.items)
   }
 
   function startRename(id: string, currentName: string) {
@@ -61,7 +61,7 @@ export function OrderList({ onViewResult }: Props) {
             const result = pack(items, boxes)
             setResult(editingId, result)
             setEditingId(null)
-            onViewResult(result)
+            onViewResult(result, items)
           }}
           onSave={(items) => {
             updateItems(editingId, items)
@@ -152,7 +152,7 @@ export function OrderList({ onViewResult }: Props) {
                 </button>
                 {order.items.length > 0 && boxes.length > 0 && (
                   <button
-                    onClick={() => order.result ? onViewResult(order.result) : handleCalculate(order.id)}
+                    onClick={() => order.result ? onViewResult(order.result, order.items) : handleCalculate(order.id)}
                     className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded transition-colors"
                   >
                     {order.result ? '결과 보기' : '포장 계산'}
