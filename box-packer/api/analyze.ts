@@ -90,11 +90,15 @@ function buildChatMessages(data: ChatData): ChatMessage[] {
     '',
     `사용 가능한 박스 종류: ${data.availableBoxNames.join(', ')}`,
     '',
-    '사용자가 다른 포장 방식을 요청하면 텍스트로 설명한 뒤,',
-    '특정 박스 종류로 시뮬레이션이 가능하면 응답 맨 끝에 반드시 아래 형식을 추가하세요:',
-    '<action>{"type":"filter_boxes","names":["박스이름1","박스이름2"]}</action>',
+    '사용자 요청에 텍스트로 답변한 뒤, 시뮬레이션 가능하면 응답 맨 끝에 반드시 아래 형식 중 하나를 추가하세요.',
+    '',
+    '1. 박스 종류 변경: <action>{"type":"filter_boxes","names":["박스이름"]}</action>',
+    '2. 상품 배치 방향 제약: <action>{"type":"constrain_pack","constraints":[{"productName":"상품이름","rotation":"flat"}]}</action>',
+    '   rotation 값: "flat"(넓은 면이 바닥), "tall"(좁은 면이 바닥/세우기), "natural"(원래 치수 방향 유지)',
+    '3. 박스 + 방향 동시 변경: <action>{"type":"combined","names":["박스이름"],"constraints":[{"productName":"상품이름","rotation":"flat"}]}</action>',
     '시뮬레이션 액션이 없으면: <action>null</action>',
-    '박스 이름은 반드시 사용 가능한 박스 종류 목록에 있는 이름만 사용하세요.',
+    '박스 이름은 사용 가능한 박스 종류 목록에 있는 이름만 사용하세요.',
+    '상품 이름은 포장 결과에 나온 이름 그대로 사용하세요.',
   ].join('\n')
 
   // system 메시지를 첫 번째 user 메시지 앞에 prepend

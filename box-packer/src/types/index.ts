@@ -43,10 +43,16 @@ export interface PackingResult {
   stockLimitReached: boolean  // 재고 제약으로 최적화 불가 여부
 }
 
-export interface SimAction {
-  type: 'filter_boxes'
-  names: string[]
+export interface PackConstraint {
+  productName: string
+  rotation: 'flat' | 'tall' | 'natural'
+  // flat: 넓은 면이 바닥 (h 최소), tall: 좁은 면이 바닥 (h 최대), natural: 원래 방향
 }
+
+export type SimAction =
+  | { type: 'filter_boxes'; names: string[] }
+  | { type: 'constrain_pack'; constraints: PackConstraint[] }
+  | { type: 'combined'; names?: string[]; constraints?: PackConstraint[] }
 
 export interface ChatMessage {
   role: 'user' | 'assistant'

@@ -170,15 +170,24 @@ export function Viewer3D({ result, items }: Props) {
   }
 
   function handleRunSimulation(action: SimAction) {
+    let targetBoxes = allBoxes
+    let constraints: import('../../types').PackConstraint[] = []
+
     if (action.type === 'filter_boxes') {
-      const filtered = allBoxes.filter((b) => action.names.includes(b.name))
-      if (filtered.length === 0) return
-      const newResult = pack(items, filtered)
-      setDisplayResult(newResult)
-      setIsSimulated(true)
-      setSelectedBoxIndex(null)
-      setSelectedItem(null)
+      targetBoxes = allBoxes.filter((b) => action.names.includes(b.name))
+    } else if (action.type === 'constrain_pack') {
+      constraints = action.constraints
+    } else if (action.type === 'combined') {
+      if (action.names?.length) targetBoxes = allBoxes.filter((b) => action.names!.includes(b.name))
+      if (action.constraints?.length) constraints = action.constraints
     }
+
+    if (targetBoxes.length === 0) return
+    const newResult = pack(items, targetBoxes, constraints)
+    setDisplayResult(newResult)
+    setIsSimulated(true)
+    setSelectedBoxIndex(null)
+    setSelectedItem(null)
   }
 
   function handleResetResult() {
@@ -466,14 +475,26 @@ export function Viewer3D({ result, items }: Props) {
                     </div>
                   ) : msg.content}
                 </div>
-                {msg.role === 'assistant' && msg.action && msg.action.type === 'filter_boxes' && (
-                  <button
-                    onClick={() => handleRunSimulation(msg.action!)}
-                    className="text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    시뮬레이션 실행 — {msg.action.names.join(', ')}
-                  </button>
-                )}
+                {msg.role === 'assistant' && msg.action && (() => {
+                  const a = msg.action
+                  let label = '시뮬레이션 실행'
+                  if (a.type === 'filter_boxes') label += ` — ${a.names.join(', ')}`
+                  else if (a.type === 'constrain_pack') label += ` — ${a.constraints.map((c) => `${c.productName} ${c.rotation}`).join(', ')}`
+                  else if (a.type === 'combined') {
+                    const parts = []
+                    if (a.names?.length) parts.push(a.names.join(', '))
+                    if (a.constraints?.length) parts.push(a.constraints.map((c) => `${c.productName} ${c.rotation}`).join(', '))
+                    label += ` — ${parts.join(' · ')}`
+                  }
+                  return (
+                    <button
+                      onClick={() => handleRunSimulation(msg.action!)}
+                      className="text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                      {label}
+                    </button>
+                  )
+                })()}
               </div>
             ))}
             {chatLoading && messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.content === '' && (

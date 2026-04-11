@@ -1,4 +1,4 @@
-import type { Box, OrderItem, PackedBox, PackingResult, PlacedItem, Product } from '../types'
+import type { Box, OrderItem, PackConstraint, PackedBox, PackingResult, PlacedItem, Product } from '../types'
 
 interface Dims {
   w: number
@@ -23,6 +23,23 @@ function rotations(p: Product): Dims[] {
     { w: h, d: w, h: d },
     { w: h, d, h: w },
   ]
+}
+
+function applyRotationConstraint(dims: Dims[], constraint: PackConstraint['rotation']): Dims[] {
+  if (constraint === 'natural') return [dims[0]]
+  if (constraint === 'flat') {
+    // h 최소 (넓은 면이 바닥)
+    const minH = Math.min(...dims.map((d) => d.h))
+    const filtered = dims.filter((d) => d.h === minH)
+    return filtered.length > 0 ? filtered : dims
+  }
+  if (constraint === 'tall') {
+    // h 최대 (좁은 면이 바닥)
+    const maxH = Math.max(...dims.map((d) => d.h))
+    const filtered = dims.filter((d) => d.h === maxH)
+    return filtered.length > 0 ? filtered : dims
+  }
+  return dims
 }
 
 function overlaps(
@@ -85,17 +102,22 @@ function addExtremePoints(
 
 function tryPlaceInBox(
   product: Product,
-  packedBox: PackedBox & { extremePoints: Point[] }
+  packedBox: PackedBox & { extremePoints: Point[] },
+  rotationConstraint?: PackConstraint['rotation']
 ): PlacedItem | null {
   const currentWeight = packedBox.totalWeight
 
-  // y 오름차순 (낮은 위치 우선), 그다음 x, z 오름차순
   const sortedPoints = [...packedBox.extremePoints].sort(
     (a, b) => a.y - b.y || a.x - b.x || a.z - b.z
   )
 
+  let candidateRotations = rotations(product)
+  if (rotationConstraint) {
+    candidateRotations = applyRotationConstraint(candidateRotations, rotationConstraint)
+  }
+
   for (const pos of sortedPoints) {
-    for (const dims of rotations(product)) {
+    for (const dims of candidateRotations) {
       if (canPlace(dims, pos, packedBox.box, packedBox.items, currentWeight, product.weight)) {
         return { product, position: pos, dims }
       }
@@ -113,7 +135,11 @@ function fits(product: Product, box: Box): boolean {
 
 type ActiveBox = PackedBox & { extremePoints: Point[] }
 
-export function pack(orderItems: OrderItem[], boxes: Box[]): PackingResult {
+export function pack(
+  orderItems: OrderItem[],
+  boxes: Box[],
+  constraints: PackConstraint[] = []
+): PackingResult {
   if (boxes.length === 0 || orderItems.length === 0) {
     return { boxes: [], totalBoxes: 0, unpackable: [], stockLimitReached: false }
   }
@@ -144,10 +170,11 @@ export function pack(orderItems: OrderItem[], boxes: Box[]): PackingResult {
 
   for (const product of products) {
     let placed = false
+    const rotationConstraint = constraints.find((c) => c.productName === product.name)?.rotation
 
     // 열린 박스에 먼저 시도
     for (const active of activeBoxes) {
-      const item = tryPlaceInBox(product, active)
+      const item = tryPlaceInBox(product, active, rotationConstraint)
       if (item) {
         active.items.push(item)
         active.totalWeight += product.weight
@@ -173,7 +200,7 @@ export function pack(orderItems: OrderItem[], boxes: Box[]): PackingResult {
           totalWeight: 0,
           extremePoints: [{ x: 0, y: 0, z: 0 }],
         }
-        const item = tryPlaceInBox(product, newActive)
+        const item = tryPlaceInBox(product, newActive, rotationConstraint)
         if (item) {
           newActive.items.push(item)
           newActive.totalWeight += product.weight
