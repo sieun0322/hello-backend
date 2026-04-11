@@ -195,7 +195,8 @@ export function Viewer3D({ result }: Props) {
 
       {/* 3D 씬 + AI 분석 (lg: 가로 배치) */}
       <div className="flex flex-col lg:flex-row lg:items-start gap-3">
-      <div className="relative w-full lg:flex-1 h-[320px] sm:h-[520px] bg-gray-950 rounded-xl overflow-hidden border border-gray-800">
+      <div className="flex flex-col gap-3 lg:flex-1 min-w-0">
+      <div className="relative w-full h-[320px] sm:h-[520px] bg-gray-950 rounded-xl overflow-hidden border border-gray-800">
         <Canvas
           camera={{ position: [totalWidth / 2, camDist * 0.7, camDist], fov: 45 }}
           onPointerMissed={() => {
@@ -344,6 +345,7 @@ export function Viewer3D({ result }: Props) {
           )
         })}
       </div>
+      </div>{/* 왼쪽 컬럼 끝 */}
 
       {/* AI 분석 */}
       <div className="border border-gray-800 rounded-xl p-4 lg:w-72 lg:shrink-0">
