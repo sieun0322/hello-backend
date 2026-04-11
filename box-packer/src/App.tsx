@@ -1,15 +1,14 @@
 import { useRef, useState } from 'react'
 import { BoxManager } from './components/BoxManager/BoxManager'
 import { ProductManager } from './components/ProductManager/ProductManager'
-import { OrderForm } from './components/OrderForm/OrderForm'
+import { OrderList } from './components/OrderForm/OrderList'
 import { Viewer3D } from './components/Viewer3D/Viewer3D'
 import { Statistics } from './components/Statistics/Statistics'
-import { pack } from './algorithm/binPacking'
 import { useBoxStore } from './store/boxStore'
 import { useProductStore } from './store/productStore'
 import { useHistoryStore } from './store/historyStore'
 import { exportData, parseImportFile } from './utils/dataIO'
-import type { OrderItem, PackingResult } from './types'
+import type { PackingResult } from './types'
 
 type Tab = 'boxes' | 'products' | 'order' | 'result' | 'statistics'
 
@@ -33,10 +32,9 @@ export default function App() {
   const { addProduct } = useProductStore()
   const { addSession } = useHistoryStore()
 
-  function handleCalculate(items: OrderItem[]) {
-    const r = pack(items, boxes)
+  function handleViewResult(r: PackingResult) {
     setResult(r)
-    addSession(items, r)
+    addSession([], r)
     setTab('result')
   }
 
@@ -124,7 +122,7 @@ export default function App() {
       <main className="flex-1 px-4 sm:px-6 py-4 sm:py-6 max-w-2xl w-full mx-auto pb-20 sm:pb-6">
         {tab === 'boxes'      && <BoxManager />}
         {tab === 'products'   && <ProductManager />}
-        {tab === 'order'      && <OrderForm onCalculate={handleCalculate} />}
+        {tab === 'order'      && <OrderList onViewResult={handleViewResult} />}
         {tab === 'statistics' && <Statistics />}
         {tab === 'result'     && (
           result ? (

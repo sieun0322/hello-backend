@@ -4,13 +4,18 @@ import { useBoxStore } from '../../store/boxStore'
 import type { OrderItem } from '../../types'
 
 interface Props {
+  initialItems?: OrderItem[]
   onCalculate: (items: OrderItem[]) => void
+  onSave?: (items: OrderItem[]) => void
 }
 
-export function OrderForm({ onCalculate }: Props) {
+export function OrderForm({ initialItems, onCalculate, onSave }: Props) {
   const { products } = useProductStore()
   const { boxes } = useBoxStore()
-  const [quantities, setQuantities] = useState<Record<string, number>>({})
+
+  const [quantities, setQuantities] = useState<Record<string, number>>(
+    () => Object.fromEntries((initialItems ?? []).map((i) => [i.product.id, i.quantity]))
+  )
 
   const orderItems: OrderItem[] = products
     .filter((p) => (quantities[p.id] ?? 0) > 0)
@@ -21,11 +26,6 @@ export function OrderForm({ onCalculate }: Props) {
       const next = Math.max(0, (prev[id] ?? 0) + delta)
       return { ...prev, [id]: next }
     })
-  }
-
-  function handleCalculate() {
-    if (orderItems.length === 0) return
-    onCalculate(orderItems)
   }
 
   if (products.length === 0) {
@@ -39,8 +39,6 @@ export function OrderForm({ onCalculate }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold text-white">주문 구성</h2>
-
       {boxes.length === 0 && (
         <div className="bg-yellow-900/30 border border-yellow-700/50 rounded-lg px-4 py-3 text-xs text-yellow-400">
           ⚠️ 박스가 등록되지 않았습니다. 박스 관리 탭에서 먼저 추가하세요.
@@ -94,13 +92,24 @@ export function OrderForm({ onCalculate }: Props) {
             ? `${orderItems.reduce((s, i) => s + i.quantity, 0)}개 상품 선택됨`
             : '상품 수량을 선택하세요'}
         </p>
-        <button
-          onClick={handleCalculate}
-          disabled={orderItems.length === 0 || boxes.length === 0}
-          className="px-5 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium"
-        >
-          포장 계산
-        </button>
+        <div className="flex gap-2">
+          {onSave && (
+            <button
+              onClick={() => onSave(orderItems)}
+              disabled={orderItems.length === 0}
+              className="px-4 py-2 text-sm border border-gray-700 hover:border-gray-500 text-gray-300 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              저장
+            </button>
+          )}
+          <button
+            onClick={() => onCalculate(orderItems)}
+            disabled={orderItems.length === 0 || boxes.length === 0}
+            className="px-5 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+          >
+            포장 계산
+          </button>
+        </div>
       </div>
     </div>
   )

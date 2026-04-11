@@ -43,6 +43,14 @@ export interface PackingResult {
   stockLimitReached: boolean  // 재고 제약으로 최적화 불가 여부
 }
 
+export interface Order {
+  id: string
+  name: string
+  items: OrderItem[]
+  result: PackingResult | null
+  createdAt: string
+}
+
 export interface PackingSession {
   id: string
   createdAt: string   // ISO 8601
