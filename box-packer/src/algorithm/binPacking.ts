@@ -371,11 +371,17 @@ export function applyMoveItem(
       ? toPb.totalWeight - movingItem.product.weight
       : toPb.totalWeight
 
-    const candidates = buildExtremePoints(baseItems)
+    const extremePoints = buildExtremePoints(baseItems)
     let placed: PlacedItem | null = null
 
     for (const dims of candidateDims) {
       const target = anchor ? anchorToTarget(anchor, dims, toPb.box) : null
+
+      // anchor target 좌표 자체를 후보에 포함 (극점만으로는 도달 불가한 경우 대응)
+      const candidates = target
+        ? [...extremePoints, target]
+        : extremePoints
+
       const sorted = target
         ? [...candidates].sort((a, b) => dist(a, target) - dist(b, target))
         : candidates
