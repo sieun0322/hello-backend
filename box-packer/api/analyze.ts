@@ -4,8 +4,13 @@ import type { IncomingMessage, ServerResponse } from 'http'
 
 interface PackedBox {
   box: { name: string; width: number; depth: number; height: number; maxWeight: number }
-  items: { dims: { w: number; d: number; h: number } }[]
+  items: {
+    product: { name: string; weight: number; fragile: boolean }
+    position: { x: number; y: number; z: number }
+    dims: { w: number; d: number; h: number }
+  }[]
   totalWeight: number
+  weightBalance: number  // 0~1: 1 = 완벽한 균형
 }
 
 interface PackingResult {
@@ -23,6 +28,17 @@ interface AggregatedStats {
   mostUsedBox: string
 }
 
+interface PatternData {
+  sessions: {
+    items: { product: { name: string }; quantity: number }[]
+    result: {
+      boxes: { box: { name: string }; items: { product: { name: string } }[] }[]
+      avgUtilization: number
+    }
+  }[]
+  availableBoxes: { name: string; width: number; depth: number; height: number; maxWeight: number }[]
+}
+
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
@@ -34,6 +50,9 @@ interface ChatData {
   messages: ChatMessage[]
 }
 
+// 채팅 히스토리 최대 메시지 수 (오래된 것부터 제거, 항상 짝수 유지)
+const CHAT_HISTORY_LIMIT = 8
+
 function calcUtilization(pb: PackedBox): number {
   const boxVol = pb.box.width * pb.box.depth * pb.box.height
   if (boxVol === 0) return 0
@@ -41,15 +60,44 @@ function calcUtilization(pb: PackedBox): number {
   return usedVol / boxVol
 }
 
+const ANCHORS = ['bottom-front-left','bottom-front-right','bottom-back-left','bottom-back-right','bottom-center',
+  'top-front-left','top-front-right','top-back-left','top-back-right','top-center'] as const
+type ItemAnchor = typeof ANCHORS[number]
+
+function posToAnchor(pos: { x: number; y: number; z: number }, dims: { w: number; d: number; h: number }, box: { width: number; depth: number; height: number }): ItemAnchor {
+  const xRatio = (pos.x + dims.w / 2) / box.width
+  const zRatio = (pos.z + dims.d / 2) / box.depth
+  const yRatio = (pos.y + dims.h / 2) / box.height
+
+  const xLabel = xRatio < 0.4 ? 'left' : xRatio > 0.6 ? 'right' : 'center'
+  const zLabel = zRatio < 0.4 ? 'front' : 'back'
+  const yLabel = yRatio < 0.5 ? 'bottom' : 'top'
+
+  if (xLabel === 'center' && zLabel === 'front') return `${yLabel}-center` as ItemAnchor
+  return `${yLabel}-${zLabel}-${xLabel}` as ItemAnchor
+}
+
 function resultSummary(result: PackingResult): string {
   const lines: string[] = [`총 박스 수: ${result.totalBoxes}개`]
   result.boxes.forEach((pb, i) => {
     const util = calcUtilization(pb)
+    const productCounts: Record<string, number> = {}
+    for (const item of pb.items) {
+      productCounts[item.product.name] = (productCounts[item.product.name] ?? 0) + 1
+    }
+    const productList = Object.entries(productCounts).map(([name, cnt]) => `${name}×${cnt}`).join(', ')
     lines.push(
-      `박스 ${i + 1} (${pb.box.name}): 상품 ${pb.items.length}개, ` +
+      `박스 ${i + 1} (${pb.box.name}): [${productList}], ` +
       `무게 ${pb.totalWeight.toFixed(1)}/${pb.box.maxWeight}kg, ` +
-      `공간 활용률 ${(util * 100).toFixed(0)}%`
+      `공간 활용률 ${(util * 100).toFixed(0)}%, ` +
+      `무게 균형 ${(pb.weightBalance * 100).toFixed(0)}%`
     )
+    // 아이템별 위치 정보 (move_item 채팅용)
+    for (const item of pb.items) {
+      const anchor = posToAnchor(item.position, item.dims, pb.box)
+      const fragileTag = item.product.fragile ? ' [파손주의]' : ''
+      lines.push(`  - ${item.product.name}${fragileTag}: ${anchor}, 크기 ${item.dims.w}×${item.dims.d}×${item.dims.h}cm, 무게 ${item.product.weight}kg`)
+    }
   })
   if (result.unpackable.length > 0) {
     lines.push(`포장 불가 상품: ${result.unpackable.map((p) => p.name).join(', ')}`)
@@ -67,6 +115,32 @@ function buildInstantPrompt(result: PackingResult): string {
   ].join('\n')
 }
 
+function buildPatternPrompt(data: PatternData): string {
+  const sessionLines = data.sessions.map((s, i) => {
+    const items = s.items.map((oi) => `${oi.product.name}×${oi.quantity}`).join(', ')
+    const boxes = s.result.boxes.map((pb) => pb.box.name).join(', ')
+    const util = (s.result.avgUtilization * 100).toFixed(0)
+    return `  세션 ${i + 1}: [${items}] → ${boxes}, 활용률 ${util}%`
+  })
+  const boxList = data.availableBoxes.map(
+    (b) => `${b.name}(${b.width}×${b.depth}×${b.height}cm, 최대 ${b.maxWeight}kg)`
+  ).join(', ')
+
+  return [
+    '아래는 포장 히스토리 데이터입니다. 마크다운 형식으로 분석 리포트를 작성하세요.',
+    '',
+    `## 포장 히스토리 (총 ${data.sessions.length}건)`,
+    ...sessionLines,
+    '',
+    `## 현재 보유 박스: ${boxList}`,
+    '',
+    '다음 세 가지를 포함하여 작성하세요:',
+    '1. **비효율 패턴** — 자주 나타나는 낮은 활용률 상품 조합',
+    '2. **박스 추천** — 현재 없는 사이즈 중 추가 시 효율이 오를 것',
+    '3. **개선 우선순위** — 임팩트 큰 순서로 3개',
+  ].join('\n')
+}
+
 function buildReportPrompt(stats: AggregatedStats): string {
   return [
     `아래는 ${stats.label} 기간의 포장 배송 통계입니다. 마크다운 형식으로 분석 리포트를 작성하세요.`,
@@ -81,14 +155,13 @@ function buildReportPrompt(stats: AggregatedStats): string {
   ].join('\n')
 }
 
-function buildChatMessages(data: ChatData): ChatMessage[] {
-  const system = [
+type SystemBlock = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
+
+// system을 두 블록으로 분리해서 반환 (각각 독립적으로 캐싱)
+function buildChatPayload(data: ChatData): { system: SystemBlock[]; messages: ChatMessage[] } {
+  // breakpoint 1: 역할 정의 + 액션 형식 — 요청마다 변하지 않음
+  const staticInstructions = [
     '당신은 3D 박스 포장 최적화 어시스턴트입니다. 한국어로 응답하세요.',
-    '',
-    '현재 포장 결과:',
-    resultSummary(data.result),
-    '',
-    `사용 가능한 박스 종류: ${data.availableBoxNames.join(', ')}`,
     '',
     '사용자 요청에 텍스트로 답변한 뒤, 시뮬레이션 가능하면 응답 맨 끝에 반드시 아래 형식 중 하나를 추가하세요.',
     '',
@@ -96,19 +169,38 @@ function buildChatMessages(data: ChatData): ChatMessage[] {
     '2. 상품 배치 방향 제약: <action>{"type":"constrain_pack","constraints":[{"productName":"상품이름","rotation":"flat"}]}</action>',
     '   rotation 값: "flat"(넓은 면이 바닥), "tall"(좁은 면이 바닥/세우기), "natural"(원래 치수 방향 유지)',
     '3. 박스 + 방향 동시 변경: <action>{"type":"combined","names":["박스이름"],"constraints":[{"productName":"상품이름","rotation":"flat"}]}</action>',
+    '4. 아이템 이동 (박스 변경 또는 위치 지정): <action>{"type":"move_item","moves":[{"productName":"상품이름","fromBoxIndex":0,"toBoxIndex":1,"anchor":"bottom-center","rotation":"flat"}]}</action>',
+    '   anchor 값(선택): "bottom-front-left","bottom-front-right","bottom-back-left","bottom-back-right","bottom-center","top-front-left","top-front-right","top-back-left","top-back-right","top-center"',
+    '   anchor와 rotation은 생략 가능. 생략 시 알고리즘이 최적 위치/방향 선택.',
+    '   fromBoxIndex/toBoxIndex는 0-based. 같은 박스 내 이동도 가능.',
+    '   복수 아이템 동시 이동 가능.',
     '시뮬레이션 액션이 없으면: <action>null</action>',
     '박스 이름은 사용 가능한 박스 종류 목록에 있는 이름만 사용하세요.',
     '상품 이름은 포장 결과에 나온 이름 그대로 사용하세요.',
   ].join('\n')
 
-  // system 메시지를 첫 번째 user 메시지 앞에 prepend
-  const first = data.messages[0]
-  const rest = data.messages.slice(1)
+  // breakpoint 2: 포장 결과 컨텍스트 — 세션 내에서 변하지 않음
+  const resultContext = [
+    '현재 포장 결과:',
+    resultSummary(data.result),
+    '',
+    `사용 가능한 박스 종류: ${data.availableBoxNames.join(', ')}`,
+  ].join('\n')
 
-  return [
-    { role: 'user', content: `${system}\n\n사용자: ${first.content}` },
-    ...rest,
-  ]
+  // 최근 N개 메시지만 유지 (오래된 히스토리 제거로 토큰 절약)
+  const trimmed = data.messages.length > CHAT_HISTORY_LIMIT
+    ? data.messages.slice(-CHAT_HISTORY_LIMIT)
+    : data.messages
+
+  const messages = trimmed.map(({ role, content }) => ({ role, content }))
+
+  return {
+    system: [
+      { type: 'text', text: staticInstructions, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: resultContext, cache_control: { type: 'ephemeral' } },
+    ],
+    messages,
+  }
 }
 
 function parseAction(fullText: string): { text: string; action: unknown } {
@@ -137,16 +229,28 @@ async function streamFromAnthropic(
   messages: ChatMessage[],
   apiUrl: string, apiKey: string, apiVersion: string, model: string,
   res: ServerResponse,
-  withAction: boolean
+  withAction: boolean,
+  system?: SystemBlock[],
+  maxTokens = 512
 ) {
+  const body: Record<string, unknown> = {
+    model, max_tokens: maxTokens, stream: true, messages,
+    cache_control: { type: 'ephemeral' }, // 대화 히스토리 자동 캐싱
+  }
+
+  if (system) {
+    body.system = system
+  }
+
   const aiRes = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': apiVersion,
+      'anthropic-beta': 'prompt-caching-2024-07-31',
     },
-    body: JSON.stringify({ model, max_tokens: 1024, stream: true, messages }),
+    body: JSON.stringify(body),
   })
 
   if (!aiRes.ok) {
@@ -166,6 +270,8 @@ async function streamFromAnthropic(
   const decoder = new TextDecoder()
   let buffer = ''
   let fullText = ''
+  let sentUpTo = 0      // 프론트로 전송한 텍스트 길이
+  let actionStarted = false  // <action> 태그 감지 여부
 
   try {
     while (true) {
@@ -184,8 +290,21 @@ async function streamFromAnthropic(
           const event = JSON.parse(raw)
           if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
             fullText += event.delta.text
+
             if (!withAction) {
               res.write(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`)
+            } else if (!actionStarted) {
+              const actionIdx = fullText.indexOf('<action>')
+              if (actionIdx === -1) {
+                // <action> 태그 미감지 — 실시간 전송
+                res.write(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`)
+                sentUpTo = fullText.length
+              } else {
+                // <action> 태그 감지 — 태그 이전 텍스트만 전송 후 누적 모드로 전환
+                actionStarted = true
+                const toSend = fullText.slice(sentUpTo, actionIdx)
+                if (toSend) res.write(`data: ${JSON.stringify({ text: toSend })}\n\n`)
+              }
             }
           }
         } catch { /* 무시 */ }
@@ -196,8 +315,7 @@ async function streamFromAnthropic(
   }
 
   if (withAction) {
-    const { text, action } = parseAction(fullText)
-    res.write(`data: ${JSON.stringify({ text })}\n\n`)
+    const { action } = parseAction(fullText)
     res.write(`data: ${JSON.stringify({ action })}\n\n`)
   }
 
@@ -225,7 +343,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   let type: string
-  let data: PackingResult | AggregatedStats | ChatData
+  let data: PackingResult | AggregatedStats | ChatData | PatternData
   try {
     const parsed = JSON.parse(bodyText)
     type = parsed.type
@@ -252,18 +370,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   if (type === 'chat') {
-    const messages = buildChatMessages(data as ChatData)
-    await streamFromAnthropic(messages, apiUrl, apiKey, apiVersion, model, res, true)
+    const { system, messages } = buildChatPayload(data as ChatData)
+    await streamFromAnthropic(messages, apiUrl, apiKey, apiVersion, model, res, true, system, 512)
     return
   }
 
   const prompt =
-    type === 'instant'
-      ? buildInstantPrompt(data as PackingResult)
-      : buildReportPrompt(data as AggregatedStats)
+    type === 'instant' ? buildInstantPrompt(data as PackingResult) :
+    type === 'pattern' ? buildPatternPrompt(data as PatternData) :
+    buildReportPrompt(data as AggregatedStats)
+
+  const maxTokens = (type === 'report' || type === 'pattern') ? 1024 : 512
 
   await streamFromAnthropic(
     [{ role: 'user', content: prompt }],
-    apiUrl, apiKey, apiVersion, model, res, false
+    apiUrl, apiKey, apiVersion, model, res, false, undefined, maxTokens
   )
 }

@@ -37,6 +37,7 @@ export function ProductForm({ initial, onSubmit, onCancel }: Props) {
       : EMPTY
   )
   const [color, setColor] = useState(initial?.color ?? PRESET_COLORS[0])
+  const [fragile, setFragile] = useState(initial?.fragile ?? false)
   const [error, setError] = useState('')
 
   function handleSubmit(e: React.FormEvent) {
@@ -51,7 +52,7 @@ export function ProductForm({ initial, onSubmit, onCancel }: Props) {
       return setError('모든 치수/무게는 0보다 큰 숫자여야 합니다')
 
     setError('')
-    onSubmit({ name: form.name.trim(), width, depth, height, weight, color })
+    onSubmit({ name: form.name.trim(), width, depth, height, weight, color, fragile })
   }
 
   const field = (label: string, key: keyof typeof EMPTY, unit: string) => (
@@ -89,6 +90,18 @@ export function ProductForm({ initial, onSubmit, onCancel }: Props) {
         {field('높이', 'height', 'cm')}
       </div>
       {field('무게', 'weight', 'kg')}
+
+      {/* 파손 주의 */}
+      <label className="flex items-center gap-2 cursor-pointer select-none">
+        <div
+          onClick={() => setFragile((v) => !v)}
+          className={`w-9 h-5 rounded-full transition-colors relative ${fragile ? 'bg-orange-500' : 'bg-gray-700'}`}
+        >
+          <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${fragile ? 'translate-x-4' : 'translate-x-0.5'}`} />
+        </div>
+        <span className="text-sm text-gray-300">파손 주의</span>
+        {fragile && <span className="text-xs text-orange-400">적재 시 위/아래 위험 감지</span>}
+      </label>
 
       {/* 색상 선택 */}
       <div className="flex flex-col gap-2">

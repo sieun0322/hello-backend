@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useMemo } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { CameraControls, GizmoHelper, GizmoViewport, Grid } from '@react-three/drei'
 import ReactMarkdown from 'react-markdown'
-import { pack } from '../../algorithm/binPacking'
+import { applyMoveItem, pack } from '../../algorithm/binPacking'
 import { useBoxStore } from '../../store/boxStore'
 import type { ChatMessage, OrderItem, PackingResult, PackedBox, PlacedItem, Product, SimAction } from '../../types'
 import { PackedBoxMesh } from './PackedBoxMesh'
@@ -171,6 +171,21 @@ export function Viewer3D({ result, items, onSaveResult }: Props) {
   }
 
   function handleRunSimulation(action: SimAction) {
+    if (action.type === 'move_item') {
+      const { result: newResult, failed } = applyMoveItem(displayResult, action.moves)
+      setDisplayResult(newResult)
+      setIsSimulated(true)
+      setSelectedBoxIndex(null)
+      setSelectedItem(null)
+      if (failed.length > 0) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `⚠ 공간 부족으로 이동 실패: ${failed.join(', ')}` },
+        ])
+      }
+      return
+    }
+
     let targetBoxes = allBoxes
     let constraints: import('../../types').PackConstraint[] = []
 
@@ -284,6 +299,15 @@ export function Viewer3D({ result, items, onSaveResult }: Props) {
         </div>
       )}
 
+      {(activeResult.riskItems ?? []).length > 0 && (
+        <div className="bg-red-900/30 border border-red-700/50 rounded-lg px-4 py-3 text-xs text-red-400">
+          ⚠ 파손 위험 {activeResult.riskItems.length}건 —{' '}
+          {activeResult.riskItems.map((r) =>
+            `박스 ${r.boxIndex + 1} ${r.productName}(${r.reason === 'heavy_above' ? '무거운 상품이 위에' : '파손주의 상품'})`
+          ).join(', ')}
+        </div>
+      )}
+
       {activeResult.unpackable.length > 0 && (
         <div className="bg-red-900/30 border border-red-700/50 rounded-lg px-4 py-3 text-xs text-red-400">
           ⚠️ 포장 불가 상품 {activeResult.unpackable.length}개:{' '}
@@ -324,20 +348,28 @@ export function Viewer3D({ result, items, onSaveResult }: Props) {
               <directionalLight position={[10, 20, 10]} intensity={1} />
               <directionalLight position={[-10, -5, -10]} intensity={0.3} />
 
-              {activeResult.boxes.map((pb, i) => (
-                <PackedBoxMesh
-                  key={i}
-                  packedBox={pb}
-                  offsetX={offsets[i]}
-                  selected={selectedBoxIndex === i}
-                  dimmed={selectedBoxIndex !== null && selectedBoxIndex !== i}
-                  hiddenIds={hiddenIds}
-                  visibleCount={selectedBoxIndex === i && visibleCount !== null ? visibleCount : null}
-                  selectedItem={selectedBoxIndex === i ? selectedItem : null}
-                  onSelectBox={() => handleSelectBox(i)}
-                  onSelectItem={handleSelectItem}
-                />
-              ))}
+              {activeResult.boxes.map((pb, i) => {
+                const riskProductNames = new Set(
+                  (activeResult.riskItems ?? [])
+                    .filter((r) => r.boxIndex === i)
+                    .map((r) => r.productName)
+                )
+                return (
+                  <PackedBoxMesh
+                    key={i}
+                    packedBox={pb}
+                    offsetX={offsets[i]}
+                    selected={selectedBoxIndex === i}
+                    dimmed={selectedBoxIndex !== null && selectedBoxIndex !== i}
+                    hiddenIds={hiddenIds}
+                    visibleCount={selectedBoxIndex === i && visibleCount !== null ? visibleCount : null}
+                    selectedItem={selectedBoxIndex === i ? selectedItem : null}
+                    riskProductNames={riskProductNames}
+                    onSelectBox={() => handleSelectBox(i)}
+                    onSelectItem={handleSelectItem}
+                  />
+                )
+              })}
 
               <Grid
                 position={[totalWidth / 2, -0.05, maxD / 2]}
@@ -452,6 +484,10 @@ export function Viewer3D({ result, items, onSaveResult }: Props) {
                     안정성 {(pb.stability * 100).toFixed(0)}%
                     {pb.stability < 0.6 && ' ⚠ 흔들림 주의'}
                   </p>
+                  <p className={`text-xs mt-0.5 ${(pb.weightBalance ?? 1) < 0.6 ? 'text-yellow-400' : 'text-gray-500'}`}>
+                    무게 균형 {((pb.weightBalance ?? 1) * 100).toFixed(0)}%
+                    {(pb.weightBalance ?? 1) < 0.6 && ' ⚠ 한쪽 쏠림'}
+                  </p>
                 </button>
               )
             })}
@@ -498,6 +534,8 @@ export function Viewer3D({ result, items, onSaveResult }: Props) {
                     if (a.names?.length) parts.push(a.names.join(', '))
                     if (a.constraints?.length) parts.push(a.constraints.map((c) => `${c.productName} ${c.rotation}`).join(', '))
                     label += ` — ${parts.join(' · ')}`
+                  } else if (a.type === 'move_item') {
+                    label += ` — ${a.moves.map((m) => `${m.productName} → 박스 ${m.toBoxIndex + 1}`).join(', ')}`
                   }
                   return (
                     <button

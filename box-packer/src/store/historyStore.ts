@@ -27,6 +27,27 @@ export const useHistoryStore = create<HistoryStore>()(
         }),
       clearHistory: () => set({ sessions: [] }),
     }),
-    { name: 'box-packer:history' }
+    {
+      name: 'box-packer:history',
+      version: 1,
+      migrate: (raw, version) => {
+        const state = raw as { sessions: PackingSession[] }
+        if (version < 1) {
+          state.sessions = (state.sessions ?? []).map((s) => ({
+            ...s,
+            result: {
+              ...s.result,
+              avgStability: s.result.avgStability ?? 0,
+              boxes: s.result.boxes.map((b) => ({
+                ...b,
+                stability: b.stability ?? 0,
+                weightBalance: b.weightBalance ?? 1,
+              })),
+            },
+          }))
+        }
+        return state
+      },
+    }
   )
 )

@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import * as XLSX from 'xlsx'
 import ReactMarkdown from 'react-markdown'
 import { useHistoryStore } from '../../store/historyStore'
+import { useBoxStore } from '../../store/boxStore'
 import type { PackingSession, AggregatedStats } from '../../types'
 
 type Period = 'daily' | 'monthly' | 'yearly'
@@ -32,6 +33,13 @@ function aggregate(sessions: PackingSession[], period: Period): AggregatedStats 
     sessions.reduce((s, ss) => s + calcUtilization(ss), 0) / sessions.length
   const avgStability =
     sessions.reduce((s, ss) => s + (ss.result.avgStability ?? 0), 0) / sessions.length
+  const avgWeightBalance =
+    sessions.reduce((s, ss) => {
+      const boxes = ss.result.boxes
+      if (boxes.length === 0) return s
+      const avg = boxes.reduce((a, b) => a + (b.weightBalance ?? 1), 0) / boxes.length
+      return s + avg
+    }, 0) / sessions.length
 
   // 가장 많이 쓴 박스
   const boxCount: Record<string, number> = {}
@@ -49,7 +57,7 @@ function aggregate(sessions: PackingSession[], period: Period): AggregatedStats 
   const maxLabel = labels.reduce((a, b) => (a > b ? a : b))
   const label = minLabel === maxLabel ? minLabel : `${minLabel} ~ ${maxLabel}`
 
-  return { period, label, totalSessions: sessions.length, totalBoxes, avgUtilization, avgStability, mostUsedBox, sessions }
+  return { period, label, totalSessions: sessions.length, totalBoxes, avgUtilization, avgStability, avgWeightBalance, mostUsedBox, sessions }
 }
 
 function filterByPeriod(sessions: PackingSession[], period: Period): PackingSession[] {
@@ -88,6 +96,7 @@ function exportToExcel(stats: AggregatedStats) {
     총박스수: stats.totalBoxes,
     평균활용률: `${(stats.avgUtilization * 100).toFixed(1)}%`,
     평균안정성: `${(stats.avgStability * 100).toFixed(1)}%`,
+    평균무게균형: `${(stats.avgWeightBalance * 100).toFixed(1)}%`,
     최다사용박스: stats.mostUsedBox,
   }]
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), '기간 집계')
@@ -98,10 +107,14 @@ function exportToExcel(stats: AggregatedStats) {
 
 export function Statistics() {
   const { sessions, clearHistory } = useHistoryStore()
+  const { boxes: allBoxes } = useBoxStore()
   const [period, setPeriod] = useState<Period>('monthly')
   const [aiReport, setAiReport] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
+  const [patternReport, setPatternReport] = useState<string | null>(null)
+  const [patternLoading, setPatternLoading] = useState(false)
+  const [patternError, setPatternError] = useState<string | null>(null)
 
   const filtered = useMemo(() => filterByPeriod(sessions, period), [sessions, period])
   const stats = useMemo(() => aggregate(filtered, period), [filtered, period])
@@ -156,6 +169,62 @@ export function Statistics() {
     }
   }
 
+  async function handleGeneratePattern() {
+    if (sessions.length === 0) return
+    setPatternLoading(true)
+    setPatternError(null)
+    setPatternReport(null)
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'pattern',
+          data: {
+            sessions: sessions.map((s) => ({
+              items: s.items,
+              result: {
+                boxes: s.result.boxes.map((pb) => ({ box: pb.box, items: pb.items })),
+                avgUtilization:
+                  s.result.boxes.length === 0 ? 0 :
+                  s.result.boxes.reduce((sum, pb) => {
+                    const vol = pb.box.width * pb.box.depth * pb.box.height
+                    return sum + (vol === 0 ? 0 : pb.items.reduce((s2, i) => s2 + i.dims.w * i.dims.d * i.dims.h, 0) / vol)
+                  }, 0) / s.result.boxes.length,
+              },
+            })),
+            availableBoxes: allBoxes,
+          },
+        }),
+      })
+      if (!res.ok) throw new Error(`${res.status}`)
+
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') continue
+          try {
+            const { text } = JSON.parse(data) as { text: string }
+            setPatternReport((prev) => (prev ?? '') + text)
+          } catch { /* 무시 */ }
+        }
+      }
+    } catch {
+      setPatternError('패턴 분석에 실패했습니다. 잠시 후 다시 시도하세요.')
+    } finally {
+      setPatternLoading(false)
+    }
+  }
+
   const PERIOD_LABELS: Record<Period, string> = { daily: '일간', monthly: '월간', yearly: '연간' }
 
   if (sessions.length === 0) {
@@ -207,6 +276,7 @@ export function Statistics() {
               { label: '총 박스 수', value: `${stats!.totalBoxes}개` },
               { label: '평균 공간 활용률', value: `${(stats!.avgUtilization * 100).toFixed(1)}%` },
               { label: '평균 안정성', value: `${(stats!.avgStability * 100).toFixed(1)}%` },
+              { label: '평균 무게 균형', value: `${(stats!.avgWeightBalance * 100).toFixed(1)}%` },
               { label: '최다 사용 박스', value: stats!.mostUsedBox },
             ].map(({ label, value }) => (
               <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
@@ -253,6 +323,14 @@ export function Statistics() {
             </button>
           </div>
 
+          <button
+            onClick={handleGeneratePattern}
+            disabled={patternLoading}
+            className="w-full text-xs bg-emerald-800 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 rounded-lg transition-colors"
+          >
+            {patternLoading ? '패턴 분석 중...' : '전체 히스토리 패턴 분석 + 박스 추천'}
+          </button>
+
           {/* AI 리포트 */}
           {aiError && (
             <p className="text-xs text-red-400">{aiError}</p>
@@ -262,6 +340,19 @@ export function Statistics() {
               <p className="text-xs font-medium text-indigo-400 mb-2">AI 분석 리포트</p>
               <div className="text-xs text-gray-300 leading-relaxed prose prose-invert prose-xs max-w-none">
                 <ReactMarkdown>{aiReport}</ReactMarkdown>
+              </div>
+            </div>
+          )}
+
+          {/* 패턴 분석 */}
+          {patternError && (
+            <p className="text-xs text-red-400">{patternError}</p>
+          )}
+          {patternReport && (
+            <div className="border border-emerald-900 bg-emerald-950/30 rounded-xl p-4">
+              <p className="text-xs font-medium text-emerald-400 mb-2">패턴 분석 + 박스 추천</p>
+              <div className="text-xs text-gray-300 leading-relaxed prose prose-invert prose-xs max-w-none">
+                <ReactMarkdown>{patternReport}</ReactMarkdown>
               </div>
             </div>
           )}

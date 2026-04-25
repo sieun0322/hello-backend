@@ -114,6 +114,23 @@ describe('pack — 엣지 케이스', () => {
   })
 })
 
+describe('pack — 코너 배치 (무거운 상품 중앙 배치로 인한 공간 낭비 방지)', () => {
+  it('A×4 + B×1 — 한 박스에 패킹', () => {
+    // 1호 박스: 9×12×3 cm, A: 2×2×10 cm (1kg), B: 1×2×3 cm (10kg)
+    // 총 부피: 160+6=166 cm³ < 박스 324 cm³ → 반드시 한 박스에 들어가야 함
+    const box1ho: Box = { id: 'b1ho', name: '1호', width: 9, depth: 12, height: 3, maxWeight: 20, stock: 0 }
+    const prodA: Product = { id: 'pA', name: 'A', width: 2, depth: 2, height: 10, weight: 1, color: '#fff' }
+    const prodB: Product = { id: 'pB', name: 'B', width: 1, depth: 2, height: 3, weight: 10, color: '#000' }
+    const r = pack(
+      [{ product: prodA, quantity: 4 }, { product: prodB, quantity: 1 }],
+      [box1ho]
+    )
+    expect(r.totalBoxes).toBe(1)
+    expect(r.unpackable).toHaveLength(0)
+    expect(r.boxes[0].items).toHaveLength(5)
+  })
+})
+
 describe('pack — 성능', () => {
   it('상품 50개 계산이 200ms 이하', () => {
     const products: Product[] = Array.from({ length: 5 }, (_, i) => ({

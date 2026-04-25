@@ -6,10 +6,12 @@ interface Props {
   item: PlacedItem
   selected: boolean
   dimmed: boolean
+  highlight?: boolean   // 애니메이션 중 방금 배치된 상품
+  risk?: boolean        // 파손 위험 아이템
   onSelect: (item: PlacedItem) => void
 }
 
-export function ItemMesh({ item, selected, dimmed, onSelect }: Props) {
+export function ItemMesh({ item, selected, dimmed, highlight, risk, onSelect }: Props) {
   const meshRef = useRef<THREE.Mesh>(null)
   const [hovered, setHovered] = useState(false)
 
@@ -38,9 +40,15 @@ export function ItemMesh({ item, selected, dimmed, onSelect }: Props) {
         color={color}
         opacity={dimmed ? 0.25 : hovered || selected ? 1 : 0.82}
         transparent
-        emissive={selected ? color : hovered ? color : '#000000'}
-        emissiveIntensity={selected ? 0.35 : hovered ? 0.15 : 0}
+        emissive={highlight ? '#ffffff' : selected ? color : hovered ? color : '#000000'}
+        emissiveIntensity={highlight ? 0.5 : selected ? 0.35 : hovered ? 0.15 : 0}
       />
+      {risk && (
+        <lineSegments>
+          <edgesGeometry args={[new THREE.BoxGeometry(w + 0.6, h + 0.6, d + 0.6)]} />
+          <lineBasicMaterial color="#ef4444" />
+        </lineSegments>
+      )}
     </mesh>
   )
 }

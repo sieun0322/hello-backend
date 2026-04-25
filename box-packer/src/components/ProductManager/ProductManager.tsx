@@ -66,7 +66,12 @@ export function ProductManager() {
                   style={{ backgroundColor: product.color ?? '#6366f1' }}
                 />
                 <div>
-                  <p className="text-sm font-medium text-white">{product.name}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-medium text-white">{product.name}</p>
+                    {product.fragile && (
+                      <span className="text-xs bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded">파손주의</span>
+                    )}
+                  </div>
                   <p className="text-xs text-gray-500 mt-0.5">
                     {product.width} × {product.depth} × {product.height} cm &nbsp;·&nbsp; {product.weight} kg
                   </p>

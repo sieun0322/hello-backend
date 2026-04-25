@@ -4,10 +4,13 @@ import { ItemMesh } from './ItemMesh'
 
 interface Props {
   packedBox: PackedBox
-  offsetX: number           // 씬 내 X축 오프셋 (박스 나란히 배치용)
-  selected: boolean         // 이 박스가 선택됐는지
-  dimmed: boolean           // 다른 박스가 선택됐을 때 흐리게
+  offsetX: number
+  selected: boolean
+  dimmed: boolean
+  hiddenIds: Set<string>
+  visibleCount: number | null  // null = 전체, 숫자 = 해당 인덱스까지만 표시
   selectedItem: PlacedItem | null
+  riskProductNames: Set<string>
   onSelectBox: () => void
   onSelectItem: (item: PlacedItem) => void
 }
@@ -17,7 +20,10 @@ export function PackedBoxMesh({
   offsetX,
   selected,
   dimmed,
+  hiddenIds,
+  visibleCount,
   selectedItem,
+  riskProductNames,
   onSelectBox,
   onSelectItem,
 }: Props) {
@@ -50,15 +56,22 @@ export function PackedBoxMesh({
       </lineSegments>
 
       {/* 상품들 */}
-      {items.map((item, i) => (
-        <ItemMesh
-          key={i}
-          item={item}
-          dimmed={dimmed}
-          selected={selectedItem === item}
-          onSelect={onSelectItem}
-        />
-      ))}
+      {items.map((item, i) => {
+        if (visibleCount !== null && i >= visibleCount) return null
+        if (hiddenIds.has(item.product.id)) return null
+        const isAnimating = visibleCount !== null && i === visibleCount - 1
+        return (
+          <ItemMesh
+            key={i}
+            item={item}
+            dimmed={dimmed}
+            selected={selectedItem === item}
+            highlight={isAnimating}
+            risk={riskProductNames.has(item.product.name)}
+            onSelect={onSelectItem}
+          />
+        )
+      })}
     </group>
   )
 }
