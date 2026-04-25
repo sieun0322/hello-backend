@@ -77,7 +77,14 @@ function posToAnchor(pos: { x: number; y: number; z: number }, dims: { w: number
   return `${yLabel}-${zLabel}-${xLabel}` as ItemAnchor
 }
 
-function resultSummary(result: PackingResult): string {
+// move_item 관련 키워드 — 위치 정보 포함 여부 판단
+const MOVE_KEYWORDS = ['이동', '옮겨', '옮겨줘', '위치', '배치', '모서리', 'move', 'bottom-', 'top-']
+
+function needsPositionInfo(lastUserMsg: string): boolean {
+  return MOVE_KEYWORDS.some((k) => lastUserMsg.includes(k))
+}
+
+function resultSummary(result: PackingResult, includePosInfo = false): string {
   const lines: string[] = [`총 박스 수: ${result.totalBoxes}개`]
   result.boxes.forEach((pb, i) => {
     const util = calcUtilization(pb)
@@ -92,11 +99,13 @@ function resultSummary(result: PackingResult): string {
       `공간 활용률 ${(util * 100).toFixed(0)}%, ` +
       `무게 균형 ${(pb.weightBalance * 100).toFixed(0)}%`
     )
-    // 아이템별 위치 정보 (move_item 채팅용)
-    for (const item of pb.items) {
-      const anchor = posToAnchor(item.position, item.dims, pb.box)
-      const fragileTag = item.product.fragile ? ' [파손주의]' : ''
-      lines.push(`  - ${item.product.name}${fragileTag}: ${anchor}, 크기 ${item.dims.w}×${item.dims.d}×${item.dims.h}cm, 무게 ${item.product.weight}kg`)
+    // 아이템별 위치 정보: move_item 관련 요청일 때만 포함
+    if (includePosInfo) {
+      for (const item of pb.items) {
+        const anchor = posToAnchor(item.position, item.dims, pb.box)
+        const fragileTag = item.product.fragile ? ' [파손주의]' : ''
+        lines.push(`  - ${item.product.name}${fragileTag}: ${anchor}, 크기 ${item.dims.w}×${item.dims.d}×${item.dims.h}cm, 무게 ${item.product.weight}kg`)
+      }
     }
   })
   if (result.unpackable.length > 0) {
@@ -156,10 +165,14 @@ function buildReportPrompt(stats: AggregatedStats): string {
 }
 
 type SystemBlock = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
+type MsgContent = string | { type: 'text'; text: string; cache_control: { type: 'ephemeral' } }[]
 
-// system을 두 블록으로 분리해서 반환 (각각 독립적으로 캐싱)
-function buildChatPayload(data: ChatData): { system: SystemBlock[]; messages: ChatMessage[] } {
-  // breakpoint 1: 역할 정의 + 액션 형식 — 요청마다 변하지 않음
+// system을 세 블록으로 분리:
+//   block 1 (cached): 정적 지시사항 — 절대 안 바뀜
+//   block 2 (cached): 박스 종류 목록 — 재고 변경 시만 무효화
+//   block 3 (uncached): 포장 결과 — 시뮬레이션마다 바뀌므로 캐싱 효용 낮음
+function buildChatPayload(data: ChatData): { system: SystemBlock[]; messages: { role: string; content: MsgContent }[] } {
+  // block 1: 역할 정의 + 액션 형식
   const staticInstructions = [
     '당신은 3D 박스 포장 최적화 어시스턴트입니다. 한국어로 응답하세요.',
     '',
@@ -167,37 +180,47 @@ function buildChatPayload(data: ChatData): { system: SystemBlock[]; messages: Ch
     '',
     '1. 박스 종류 변경: <action>{"type":"filter_boxes","names":["박스이름"]}</action>',
     '2. 상품 배치 방향 제약: <action>{"type":"constrain_pack","constraints":[{"productName":"상품이름","rotation":"flat"}]}</action>',
-    '   rotation 값: "flat"(넓은 면이 바닥), "tall"(좁은 면이 바닥/세우기), "natural"(원래 치수 방향 유지)',
-    '3. 박스 + 방향 동시 변경: <action>{"type":"combined","names":["박스이름"],"constraints":[{"productName":"상품이름","rotation":"flat"}]}</action>',
-    '4. 아이템 이동 (박스 변경 또는 위치 지정): <action>{"type":"move_item","moves":[{"productName":"상품이름","fromBoxIndex":0,"toBoxIndex":1,"anchor":"bottom-center","rotation":"flat"}]}</action>',
-    '   anchor 값(선택): "bottom-front-left","bottom-front-right","bottom-back-left","bottom-back-right","bottom-center","top-front-left","top-front-right","top-back-left","top-back-right","top-center"',
-    '   anchor와 rotation은 생략 가능. 생략 시 알고리즘이 최적 위치/방향 선택.',
-    '   fromBoxIndex/toBoxIndex는 0-based. 같은 박스 내 이동도 가능.',
-    '   복수 아이템 동시 이동 가능.',
-    '시뮬레이션 액션이 없으면: <action>null</action>',
-    '박스 이름은 사용 가능한 박스 종류 목록에 있는 이름만 사용하세요.',
-    '상품 이름은 포장 결과에 나온 이름 그대로 사용하세요.',
+    '   rotation: "flat"(넓은 면이 바닥),"tall"(좁은 면이 바닥),"natural"(원래 방향)',
+    '3. 박스+방향 동시: <action>{"type":"combined","names":["박스이름"],"constraints":[{"productName":"상품이름","rotation":"flat"}]}</action>',
+    '4. 아이템 이동: <action>{"type":"move_item","moves":[{"productName":"상품이름","fromBoxIndex":0,"toBoxIndex":0,"anchor":"bottom-front-left","rotation":"flat"}]}</action>',
+    '   anchor(선택): bottom/top + front/back + left/right/center 조합. 생략 시 알고리즘 자동 선택.',
+    '   fromBoxIndex/toBoxIndex는 0-based. 같은 박스 내 이동 가능. 복수 이동 가능.',
+    '액션 없으면: <action>null</action>',
+    '박스·상품 이름은 컨텍스트에 나온 이름 그대로 사용.',
   ].join('\n')
 
-  // breakpoint 2: 포장 결과 컨텍스트 — 세션 내에서 변하지 않음
-  const resultContext = [
-    '현재 포장 결과:',
-    resultSummary(data.result),
-    '',
-    `사용 가능한 박스 종류: ${data.availableBoxNames.join(', ')}`,
-  ].join('\n')
+  // block 2: 박스 종류 목록 (자주 안 바뀜)
+  const boxList = `사용 가능한 박스 종류: ${data.availableBoxNames.join(', ')}`
 
-  // 최근 N개 메시지만 유지 (오래된 히스토리 제거로 토큰 절약)
+  // block 3: 포장 결과 (시뮬레이션마다 바뀌므로 캐싱 안 함)
+  const lastUserMsg = data.messages.findLast((m) => m.role === 'user')?.content ?? ''
+  const posInfo = needsPositionInfo(lastUserMsg)
+  const resultBlock = `현재 포장 결과:\n${resultSummary(data.result, posInfo)}`
+
+  // 최근 N개 메시지만 유지
   const trimmed = data.messages.length > CHAT_HISTORY_LIMIT
     ? data.messages.slice(-CHAT_HISTORY_LIMIT)
     : data.messages
 
-  const messages = trimmed.map(({ role, content }) => ({ role, content }))
+  // [개선 3] assistant 메시지에서 <action> 태그 제거 (이미 실행된 것은 히스토리에 불필요)
+  // [개선 1] 마지막 assistant turn에 cache_control 적용 (히스토리 캐싱)
+  const messages = trimmed.map(({ role, content }, i) => {
+    const cleaned = role === 'assistant'
+      ? content.replace(/<action>[\s\S]*?<\/action>/g, '').trimEnd()
+      : content
+    // 마지막 user 메시지 직전(= 마지막 assistant turn)에 캐시 브레이크포인트
+    const isLastAssistant = role === 'assistant' && i === trimmed.length - 2
+    if (isLastAssistant && trimmed.length >= 2) {
+      return { role, content: [{ type: 'text' as const, text: cleaned, cache_control: { type: 'ephemeral' as const } }] }
+    }
+    return { role, content: cleaned }
+  })
 
   return {
     system: [
       { type: 'text', text: staticInstructions, cache_control: { type: 'ephemeral' } },
-      { type: 'text', text: resultContext, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: boxList, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: resultBlock },  // 캐싱 안 함
     ],
     messages,
   }
@@ -235,7 +258,6 @@ async function streamFromAnthropic(
 ) {
   const body: Record<string, unknown> = {
     model, max_tokens: maxTokens, stream: true, messages,
-    cache_control: { type: 'ephemeral' }, // 대화 히스토리 자동 캐싱
   }
 
   if (system) {
