@@ -362,7 +362,16 @@ export function applyMoveItem(
       candidateDims = [cur, ...candidateDims.filter((d) => !(d.w === cur.w && d.d === cur.d && d.h === cur.h))]
     }
 
-    const candidates = buildExtremePoints(toPb.items)
+    const sameBox = fromBoxIndex === toBoxIndex
+    // 같은 박스 내 이동 시: 이동할 아이템을 제외한 나머지 아이템 기준으로 배치 탐색
+    const baseItems = sameBox
+      ? toPb.items.filter((_, i) => i !== itemIdx)
+      : toPb.items
+    const baseWeight = sameBox
+      ? toPb.totalWeight - movingItem.product.weight
+      : toPb.totalWeight
+
+    const candidates = buildExtremePoints(baseItems)
     let placed: PlacedItem | null = null
 
     for (const dims of candidateDims) {
@@ -372,7 +381,7 @@ export function applyMoveItem(
         : candidates
 
       for (const pos of sorted) {
-        if (canPlace(dims, pos, toPb.box, toPb.items, toPb.totalWeight, movingItem.product.weight)) {
+        if (canPlace(dims, pos, toPb.box, baseItems, baseWeight, movingItem.product.weight)) {
           placed = { product: movingItem.product, position: pos, dims }
           break
         }
@@ -382,15 +391,23 @@ export function applyMoveItem(
 
     if (!placed) { failed.push(productName); continue }
 
-    boxes[fromBoxIndex] = {
-      ...fromPb,
-      items: fromPb.items.filter((_, i) => i !== itemIdx),
-      totalWeight: fromPb.totalWeight - movingItem.product.weight,
-    }
-    boxes[toBoxIndex] = {
-      ...toPb,
-      items: [...toPb.items, placed],
-      totalWeight: toPb.totalWeight + movingItem.product.weight,
+    if (sameBox) {
+      boxes[fromBoxIndex] = {
+        ...fromPb,
+        items: [...baseItems, placed],
+        // totalWeight 불변 (같은 박스 내 이동)
+      }
+    } else {
+      boxes[fromBoxIndex] = {
+        ...fromPb,
+        items: fromPb.items.filter((_, i) => i !== itemIdx),
+        totalWeight: fromPb.totalWeight - movingItem.product.weight,
+      }
+      boxes[toBoxIndex] = {
+        ...toPb,
+        items: [...toPb.items, placed],
+        totalWeight: toPb.totalWeight + movingItem.product.weight,
+      }
     }
   }
 
