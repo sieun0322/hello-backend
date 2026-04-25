@@ -50,8 +50,9 @@ interface ChatData {
   messages: ChatMessage[]
 }
 
-// 채팅 히스토리 최대 메시지 수 (오래된 것부터 제거, 항상 짝수 유지)
-const CHAT_HISTORY_LIMIT = 8
+// 채팅 히스토리 최대 메시지 수
+const CHAT_HISTORY_LIMIT_FULL = 8   // 이동/시뮬레이션 관련 대화
+const CHAT_HISTORY_LIMIT_SHORT = 4  // 단순 질문 대화
 
 function calcUtilization(pb: PackedBox): number {
   const boxVol = pb.box.width * pb.box.depth * pb.box.height
@@ -114,14 +115,27 @@ function resultSummary(result: PackingResult, includePosInfo = false): string {
   return lines.join('\n')
 }
 
+// instant/report/pattern: 정적 지시사항은 system(cached), 동적 데이터만 user message로 전송
+const INSTANT_SYSTEM: SystemBlock[] = [{
+  type: 'text',
+  text: '당신은 3D 박스 포장 최적화 분석가입니다. 포장 결과를 분석하고 개선 제안을 3~5줄로 한국어로 작성하세요. 활용률이 낮은 박스, 더 적합한 박스 제안, 전체적인 효율 개선 방안을 중심으로 분석하세요.',
+  cache_control: { type: 'ephemeral' },
+}]
+
+const REPORT_SYSTEM: SystemBlock[] = [{
+  type: 'text',
+  text: '당신은 포장 배송 통계 분석가입니다. 아래 통계 데이터를 마크다운 형식으로 분석 리포트를 작성하세요. 트렌드 분석, 효율성 평가, 개선 제안을 포함하세요.',
+  cache_control: { type: 'ephemeral' },
+}]
+
+const PATTERN_SYSTEM: SystemBlock[] = [{
+  type: 'text',
+  text: '당신은 포장 최적화 컨설턴트입니다. 포장 히스토리를 분석하여 마크다운 리포트를 작성하세요. 비효율 패턴, 박스 추천, 개선 우선순위(임팩트 큰 순 3개)를 포함하세요.',
+  cache_control: { type: 'ephemeral' },
+}]
+
 function buildInstantPrompt(result: PackingResult): string {
-  return [
-    '아래는 3D 박스 포장 최적화 결과입니다. 이 결과를 분석하고 개선 제안을 3~5줄로 한국어로 작성하세요.',
-    '',
-    resultSummary(result),
-    '',
-    '활용률이 낮은 박스, 더 적합한 박스 제안, 전체적인 효율 개선 방안을 중심으로 분석하세요.',
-  ].join('\n')
+  return resultSummary(result)
 }
 
 function buildPatternPrompt(data: PatternData): string {
@@ -136,31 +150,20 @@ function buildPatternPrompt(data: PatternData): string {
   ).join(', ')
 
   return [
-    '아래는 포장 히스토리 데이터입니다. 마크다운 형식으로 분석 리포트를 작성하세요.',
-    '',
     `## 포장 히스토리 (총 ${data.sessions.length}건)`,
     ...sessionLines,
     '',
     `## 현재 보유 박스: ${boxList}`,
-    '',
-    '다음 세 가지를 포함하여 작성하세요:',
-    '1. **비효율 패턴** — 자주 나타나는 낮은 활용률 상품 조합',
-    '2. **박스 추천** — 현재 없는 사이즈 중 추가 시 효율이 오를 것',
-    '3. **개선 우선순위** — 임팩트 큰 순서로 3개',
   ].join('\n')
 }
 
 function buildReportPrompt(stats: AggregatedStats): string {
   return [
-    `아래는 ${stats.label} 기간의 포장 배송 통계입니다. 마크다운 형식으로 분석 리포트를 작성하세요.`,
-    '',
-    `- 기간: ${stats.label}`,
-    `- 총 포장 횟수: ${stats.totalSessions}회`,
-    `- 총 사용 박스: ${stats.totalBoxes}개`,
-    `- 평균 공간 활용률: ${(stats.avgUtilization * 100).toFixed(1)}%`,
-    `- 최다 사용 박스: ${stats.mostUsedBox}`,
-    '',
-    '트렌드 분석, 효율성 평가, 개선 제안을 포함하여 작성하세요.',
+    `기간: ${stats.label}`,
+    `총 포장 횟수: ${stats.totalSessions}회`,
+    `총 사용 박스: ${stats.totalBoxes}개`,
+    `평균 공간 활용률: ${(stats.avgUtilization * 100).toFixed(1)}%`,
+    `최다 사용 박스: ${stats.mostUsedBox}`,
   ].join('\n')
 }
 
@@ -197,9 +200,10 @@ function buildChatPayload(data: ChatData): { system: SystemBlock[]; messages: { 
   const posInfo = needsPositionInfo(lastUserMsg)
   const resultBlock = `현재 포장 결과:\n${resultSummary(data.result, posInfo)}`
 
-  // 최근 N개 메시지만 유지
-  const trimmed = data.messages.length > CHAT_HISTORY_LIMIT
-    ? data.messages.slice(-CHAT_HISTORY_LIMIT)
+  // 이동/시뮬레이션 요청이면 히스토리 8개, 단순 질문이면 4개
+  const historyLimit = posInfo ? CHAT_HISTORY_LIMIT_FULL : CHAT_HISTORY_LIMIT_SHORT
+  const trimmed = data.messages.length > historyLimit
+    ? data.messages.slice(-historyLimit)
     : data.messages
 
   // [개선 3] assistant 메시지에서 <action> 태그 제거 (이미 실행된 것은 히스토리에 불필요)
@@ -378,34 +382,47 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const apiUrl = process.env.ANTHROPIC_API_URL
   const apiKey = process.env.ANTHROPIC_API_KEY
   const apiVersion = process.env.ANTHROPIC_API_VERSION
-  const model = process.env.ANTHROPIC_MODEL
+  const modelMain = process.env.ANTHROPIC_MODEL
+  // 분석 전용(action 불필요) 타입에 사용할 빠른 모델 (미설정 시 main 모델로 fallback)
+  const modelFast = process.env.ANTHROPIC_MODEL_FAST ?? modelMain
 
-  if (!apiUrl || !apiKey || !apiVersion || !model) {
+  if (!apiUrl || !apiKey || !apiVersion || !modelMain) {
     const missing = [
       !apiUrl && 'ANTHROPIC_API_URL',
       !apiKey && 'ANTHROPIC_API_KEY',
       !apiVersion && 'ANTHROPIC_API_VERSION',
-      !model && 'ANTHROPIC_MODEL',
+      !modelMain && 'ANTHROPIC_MODEL',
     ].filter(Boolean).join(', ')
     res.writeHead(500, { 'Content-Type': 'text/plain' })
     return res.end(`Missing env vars: ${missing}`)
   }
 
   if (type === 'chat') {
+    // 채팅은 action JSON을 정확히 생성해야 하므로 항상 main 모델 사용
     const { system, messages } = buildChatPayload(data as ChatData)
-    await streamFromAnthropic(messages, apiUrl, apiKey, apiVersion, model, res, true, system, 512)
+    await streamFromAnthropic(messages, apiUrl, apiKey, apiVersion, modelMain, res, true, system, 512)
     return
   }
 
-  const prompt =
-    type === 'instant' ? buildInstantPrompt(data as PackingResult) :
-    type === 'pattern' ? buildPatternPrompt(data as PatternData) :
-    buildReportPrompt(data as AggregatedStats)
-
-  const maxTokens = (type === 'report' || type === 'pattern') ? 1024 : 512
+  // instant/report/pattern: 순수 텍스트 분석 → fast 모델 + cached system block
+  const { prompt, system, maxTokens } =
+    type === 'instant' ? {
+      prompt: buildInstantPrompt(data as PackingResult),
+      system: INSTANT_SYSTEM,
+      maxTokens: 512,
+    } :
+    type === 'pattern' ? {
+      prompt: buildPatternPrompt(data as PatternData),
+      system: PATTERN_SYSTEM,
+      maxTokens: 1024,
+    } : {
+      prompt: buildReportPrompt(data as AggregatedStats),
+      system: REPORT_SYSTEM,
+      maxTokens: 1024,
+    }
 
   await streamFromAnthropic(
     [{ role: 'user', content: prompt }],
-    apiUrl, apiKey, apiVersion, model, res, false, undefined, maxTokens
+    apiUrl, apiKey, apiVersion, modelFast!, res, false, system, maxTokens
   )
 }
